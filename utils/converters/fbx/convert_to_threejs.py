@@ -121,6 +121,24 @@ def getAnimationName(a, force_prefix = False):
     if option_prefix or force_prefix:
         prefix = "Animation_%s_" % a.GetUniqueID()
     return prefix + a.GetName()
+    
+def getAnimationLayerName(l, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Animation_Layer_%s" % l.GetUniqueID()
+    return prefix 
+
+def getAnimationCurveName(c, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Animation_Curve_%s" % c.GetUniqueID()
+    return prefix 
+
+def getPoseName(p, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Pose_%s" % p.GetUniqueID()
+    return prefix 
 
 def getFogName(f, force_prefix = False):
     prefix = ""
@@ -1847,26 +1865,73 @@ def generate_animation_curve_string(curve, node, prop):
     keys = generateMultiLineString( key_list, ",\n\n\t", 6 )
 
     output = [
-    '',
-    '{',
+    '\t' + LabelString( getAnimationCurveName( curve, True ) ) + ' : {',
     '	"modifies" : ' + LabelString( getObjectName( node ) ) + ',',
     '	"property" : ' + LabelString( prop ) + ',',
-    '	"keys" : [',
-    keys,
-    '	]',
+    '	"keys" : []',
     '}'
     ]
 
-    return generateMultiLineString( output, '\n\t\t', 4 )
+    return generateMultiLineString( output, '\n\t\t', 0 )
 
-def generate_animation_curve_list(layer, scene):
+def generate_animation_curve_list(scene):
     curve_list = []
-    for n in range(scene.GetNodeCount()):
-        node = scene.GetNode(n)
-        curve = node.LclTranslation.GetCurve(layer, "X")
-        if curve:
-            curve_string = generate_animation_curve_string(curve, node, "pos.x")
-            curve_list.append(curve_string)
+
+    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
+    for a in range(animation_count):
+        animation = scene.GetSrcObject(FbxAnimStack.ClassId, a)
+        layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
+
+        for l in range(layer_count):
+            layer = scene.GetSrcObject(FbxAnimLayer.ClassId, l)
+
+            for n in range(scene.GetNodeCount()):
+                node = scene.GetNode(n)
+
+                curve = node.LclTranslation.GetCurve(layer, "X")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "pos.x")
+                    curve_list.append(curve_string)
+
+                curve = node.LclTranslation.GetCurve(layer, "Y")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "pos.y")
+                    curve_list.append(curve_string)
+
+                curve = node.LclTranslation.GetCurve(layer, "Z")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "pos.z")
+                    curve_list.append(curve_string)
+
+                curve = node.LclRotation.GetCurve(layer, "X")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "rot.x")
+                    curve_list.append(curve_string)
+
+                curve = node.LclRotation.GetCurve(layer, "Y")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "rot.y")
+                    curve_list.append(curve_string)
+
+                curve = node.LclRotation.GetCurve(layer, "Z")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "rot.z")
+                    curve_list.append(curve_string)
+
+                curve = node.LclScaling.GetCurve(layer, "X")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "scl.x")
+                    curve_list.append(curve_string)
+
+                curve = node.LclScaling.GetCurve(layer, "Y")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "scl.y")
+                    curve_list.append(curve_string)
+
+                curve = node.LclScaling.GetCurve(layer, "Z")
+                if curve:
+                    curve_string = generate_animation_curve_string(curve, node, "scl.z")
+                    curve_list.append(curve_string)
 
     return curve_list
 
@@ -1874,29 +1939,75 @@ def generate_animation_layer_string(layer, scene):
     blend_mode_types = ['additive', 'override']
     blend_mode = blend_mode_types[layer.BlendMode.Get()]
 
-    curve_list = generate_animation_curve_list(layer, scene)
-    curves = generateMultiLineString( curve_list, ",\n", 2 )
+    curve_list = []
+    for n in range(scene.GetNodeCount()):
+        node = scene.GetNode(n)
 
+        curve = node.LclTranslation.GetCurve(layer, "X")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclTranslation.GetCurve(layer, "Y")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclTranslation.GetCurve(layer, "Z")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclRotation.GetCurve(layer, "X")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclRotation.GetCurve(layer, "Y")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclRotation.GetCurve(layer, "Z")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclScaling.GetCurve(layer, "X")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclScaling.GetCurve(layer, "Y")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+
+        curve = node.LclScaling.GetCurve(layer, "Z")
+        if curve:
+            curve_string = getAnimationCurveName(curve, True)
+            curve_list.append(curve_string)
+        
     output = [
-    '{',
+    '\t' + LabelString( getAnimationLayerName( layer, True ) ) + ' : {',
     '	"blendMode" : ' + LabelString( blend_mode ) + ',',
     '	"blendWeight" : ' + str( layer.Weight.Get() / 100 ) + ',',
-    '	"curves" :',
-    '	[',
-    curves,
-    '	]',
+    '	"curves" : ' + ArrayString( ",".join(LabelString( c ) for c in curve_list) ),
     '}'
     ]
 
-    return generateMultiLineString( output, '\n\t\t', 2 )
+    return generateMultiLineString( output, '\n\t\t', 0 )
 
-def generate_animation_layers_list(animation, scene):
+def generate_animation_layer_list(scene):
     layer_list = []
-    layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
-    for i in range(layer_count):
-        layer = scene.GetSrcObject(FbxAnimLayer.ClassId) 
-        layer_string = generate_animation_layer_string(layer, scene)
-        layer_list.append(layer_string)
+    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
+    for i in range(animation_count):
+        animation = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+        layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
+        for j in range(layer_count):
+            layer = scene.GetSrcObject(FbxAnimLayer.ClassId, j)
+            layer_string = generate_animation_layer_string(layer, scene)
+            layer_list.append(layer_string)
 
     return layer_list
 
@@ -1905,17 +2016,18 @@ def generate_animation_string(animation, scene):
     start_time = time_span.GetStart()
     stop_time = time_span.GetStop()
 
-    layer_list = generate_animation_layers_list(animation, scene)
-    layers = generateMultiLineString( layer_list, ",\n\t", 0 )
+    layer_list = []
+    layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
+    for i in range(layer_count):
+        layer = scene.GetSrcObject(FbxAnimLayer.ClassId, i)
+        layer_string = getAnimationLayerName(layer, True)
+        layer_list.append(layer_string)
 
     output = [
     '\t' + LabelString( getAnimationName( animation, True ) ) + ' : {',
     '	"start" : ' + str( start_time.GetSecondDouble() ) + ',',
     '	"stop" : ' + str( stop_time.GetSecondDouble() ) + ',',
-    '	"layers" :',
-    '	[',
-    layers,
-    '	]',
+    '	"layers" : ' + ArrayString( ",".join(LabelString( l ) for l in layer_list) ),
     '}'
     ]
 
@@ -1925,7 +2037,7 @@ def generate_animation_list(scene):
     animation_list = []
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
     for i in range(animation_count):
-        stack = scene.GetSrcObject(FbxAnimStack.ClassId) 
+        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
         animation_string = generate_animation_string(stack, scene)
         animation_list.append(animation_string)
 
@@ -2361,7 +2473,9 @@ def extract_scene(scene, filename):
     deffog = LabelString("")
 
     poses = ""
-    animations = ""
+    animation_takes = ""
+    animation_layers = ""
+    animation_curves = ""
     if option_animation:
         pose_list = generate_pose_list( scene )
         poses = generateMultiLineString( pose_list, ",\n\n\t", 0 )
@@ -2369,8 +2483,14 @@ def extract_scene(scene, filename):
         if len(poses) > 1:
             poses = poses[0:(len(poses)-1)]
 
-        animation_list = generate_animation_list( scene )
-        animations = generateMultiLineString( animation_list, ",\n\n\t", 0 )
+        animation_take_list = generate_animation_list( scene )
+        animation_takes = generateMultiLineString( animation_take_list, ",\n\n\t", 0 )
+
+        animation_layer_list = generate_animation_layer_list( scene )
+        animation_layers = generateMultiLineString( animation_layer_list, ",\n\n\t", 0 )
+
+        animation_curve_list = generate_animation_curve_list( scene )
+        animation_curves = generateMultiLineString( animation_curve_list, ",\n\n\t", 0 )
 
     geometries = generateMultiLineString( geometries, ",\n\n\t", 0 )
     materials = generateMultiLineString( materials, ",\n\n\t", 0 )
@@ -2433,7 +2553,9 @@ def extract_scene(scene, filename):
 
     '	"animations" :',
     '	{',
-    '\t' + 	animations,
+    '\t' + 	animation_takes,
+    '\t' + 	animation_layers,
+    '\t' + 	animation_curves,
     '	},',
     '',
 
