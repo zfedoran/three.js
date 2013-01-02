@@ -34,10 +34,10 @@ Options:
 * Textures (Diffuse, Emissive, Ambient, Specular, Normal, Bump)
 * Multiple UV layers
 * Multiple materials per mesh
+* Animations (Three.js does not yet support the animation JSON)
 
 ## Current Limitations
 
-* No animation support
 * Only Lambert and Phong materials are supported
 * Some camera properties are not converted correctly
 * Some light properties are not converted correctly
