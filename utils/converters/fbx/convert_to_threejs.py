@@ -2378,7 +2378,7 @@ if __name__ == "__main__":
     parser.add_option('-x', '--no-textures', action='store_true', dest='notextures', help="don't include texture references in output file", default=False)
     parser.add_option('-p', '--prefix', action='store_true', dest='prefix', help="prefix object names in output file", default=False)
     parser.add_option('-g', '--geometry-only', action='store_true', dest='geometry', help="output geometry only", default=False)
-    parser.add_option('-a', '--animation', action='store_true', dest='animation', help="export animation data (currently debug only)", default=False)
+    parser.add_option('-a', '--animation', action='store_true', dest='animation', help="export animation data", default=False)
     parser.add_option('-c', '--default-camera', action='store_true', dest='defcamera', help="include default camera in output scene", default=False)
     parser.add_option('-l', '--defualt-light', action='store_true', dest='deflight', help="include default light in output scene", default=False)
 

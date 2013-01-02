@@ -21,6 +21,7 @@ Options:
   -c, --default-camera  include a default camera in the output scene
   -l, --defualt-light   include a default light in the output scene
   -x, --no-textures     don't include texture references in the output file
+  -a, --animation       include animation data
 ```
 
 ## Supported Features
