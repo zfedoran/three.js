@@ -125,13 +125,13 @@ def getAnimationName(a, force_prefix = False):
 def getAnimationLayerName(l, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Animation_Layer_%s" % l.GetUniqueID()
+        prefix = "Layer_%s" % l.GetUniqueID()
     return prefix 
 
 def getAnimationCurveName(c, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Animation_Curve_%s" % c.GetUniqueID()
+        prefix = "Curve_%s" % c.GetUniqueID()
     return prefix 
 
 def getPoseName(p, force_prefix = False):
@@ -1860,23 +1860,93 @@ def generate_pose_list(scene):
 # #####################################################
 # Parse - Animations
 # #####################################################
-def generate_animation_key_list(curve):
-    
-  return []
 
-def generate_animation_curve_string(curve, node, prop):
-    key_list = generate_animation_key_list(curve)
-    keys = generateMultiLineString( key_list, ",\n\n\t", 6 )
+def generate_animation_keyframe_time_list(curve_node):
+    channels_count = curve_node.GetChannelsCount()
+    key_times = []
+
+    for i in range(channels_count):
+        curve = curve_node.GetCurve(i)
+        if curve:
+            keyframes_count = curve.KeyGetCount()
+            for j in range(keyframes_count):
+                time = curve.KeyGetTime(j)
+                if time not in key_times:
+                    key_times.append(time)
+
+    key_times.sort(key=lambda time: time.GetSecondDouble())
+    return key_times
+
+def generate_animation_key_list(curve_node):
+    keyframes = []
+
+    channels_count = curve_node.GetChannelsCount()
+    time_list = generate_animation_keyframe_time_list(curve_node)
+
+    for i in range(len(time_list)):
+        time = time_list[i]
+
+        interp = 0
+        for j in range(channels_count):
+            curve = curve_node.GetCurve(j)
+            if curve:
+                key_index = curve.KeyFind(time)[1]
+                if interp < curve.KeyGetInterpolation(key_index):
+                    interp = curve.KeyGetInterpolation(key_index)
+
+        isConstantInterpolation = (interp == 2)
+        isLinearInterpolation = (interp == 4)
+        isCubicInterpolation = (interp == 8)
+
+        # Type bitmask
+        # 00 00 00 00 = constant interpolation mode
+        # 00 00 00 01 = linear interpolation mode
+        # 00 00 00 10 = cubic/bezier interpolation mode
+        # 00 00 01 00 = 
+        # 00 00 10 00 = 
+        # 00 01 00 00 = 
+        # 00 10 00 00 = 
+        # 01 00 00 00 = 
+        # 10 00 00 00 = 
+
+        keyframe_type = 0
+        keyframe_type = setBit(keyframe_type, 0, isConstantInterpolation)
+        keyframe_type = setBit(keyframe_type, 1, isLinearInterpolation)
+        keyframe_type = setBit(keyframe_type, 2, isCubicInterpolation)
+        keyframe_type = setBit(keyframe_type, 3, False)
+        keyframe_type = setBit(keyframe_type, 4, False)
+        keyframe_type = setBit(keyframe_type, 5, False)
+        keyframe_type = setBit(keyframe_type, 6, False)
+        keyframe_type = setBit(keyframe_type, 7, False)
+
+        keyframes.append(keyframe_type)
+        keyframes.append(time.GetSecondDouble())
+        for j in range(channels_count):
+            curve = curve_node.GetCurve(j)
+            if curve:
+                key_index = curve.KeyFind(time)[1]
+                value = curve.KeyGetValue(key_index)
+            else:
+                value = curve_node.GetChannelValue(j, 0)
+            keyframes.append(value)
+
+    return keyframes
+
+def generate_animation_curve_string(curve_node, node, prop):
+    channels_count = curve_node.GetChannelsCount()
+    key_list = generate_animation_key_list(curve_node)
+    keys = ",".join(str(k) for k in key_list)
 
     output = [
-    '\t' + LabelString( getAnimationCurveName( curve, True ) ) + ' : {',
-    '	"modifies" : ' + LabelString( getObjectName( node ) ) + ',',
+    '\t' + LabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
+    '	"object" : ' + LabelString( getObjectName( node ) ) + ',',
     '	"property" : ' + LabelString( prop ) + ',',
-    '	"keys" : []',
+    '	"nchannels" : ' + str( channels_count ) + ',',
+    '	"keys" : ' + ArrayString( keys ),
     '}'
     ]
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return generateMultiLineString( output, '\n\t\t', 1 )
 
 def generate_animation_curve_list(scene):
     curve_list = []
@@ -1892,49 +1962,19 @@ def generate_animation_curve_list(scene):
             for n in range(scene.GetNodeCount()):
                 node = scene.GetNode(n)
 
-                curve = node.LclTranslation.GetCurve(layer, "X")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "pos.x")
+                curve_node = node.LclTranslation.GetCurveNode(layer, True)
+                if curve_node.IsAnimated():
+                    curve_string = generate_animation_curve_string(curve_node, node, "position")
                     curve_list.append(curve_string)
 
-                curve = node.LclTranslation.GetCurve(layer, "Y")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "pos.y")
+                curve_node = node.LclRotation.GetCurveNode(layer, True)
+                if curve_node.IsAnimated():
+                    curve_string = generate_animation_curve_string(curve_node, node, "rotation")
                     curve_list.append(curve_string)
 
-                curve = node.LclTranslation.GetCurve(layer, "Z")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "pos.z")
-                    curve_list.append(curve_string)
-
-                curve = node.LclRotation.GetCurve(layer, "X")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "rot.x")
-                    curve_list.append(curve_string)
-
-                curve = node.LclRotation.GetCurve(layer, "Y")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "rot.y")
-                    curve_list.append(curve_string)
-
-                curve = node.LclRotation.GetCurve(layer, "Z")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "rot.z")
-                    curve_list.append(curve_string)
-
-                curve = node.LclScaling.GetCurve(layer, "X")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "scl.x")
-                    curve_list.append(curve_string)
-
-                curve = node.LclScaling.GetCurve(layer, "Y")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "scl.y")
-                    curve_list.append(curve_string)
-
-                curve = node.LclScaling.GetCurve(layer, "Z")
-                if curve:
-                    curve_string = generate_animation_curve_string(curve, node, "scl.z")
+                curve_node = node.LclScaling.GetCurveNode(layer, True)
+                if curve_node.IsAnimated():
+                    curve_string = generate_animation_curve_string(curve_node, node, "scale")
                     curve_list.append(curve_string)
 
     return curve_list
@@ -1947,49 +1987,19 @@ def generate_animation_layer_string(layer, scene):
     for n in range(scene.GetNodeCount()):
         node = scene.GetNode(n)
 
-        curve = node.LclTranslation.GetCurve(layer, "X")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
+        curve_node = node.LclTranslation.GetCurveNode(layer, True)
+        if curve_node.IsAnimated():
+            curve_string = getAnimationCurveName(curve_node, True)
             curve_list.append(curve_string)
 
-        curve = node.LclTranslation.GetCurve(layer, "Y")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
+        curve_node = node.LclRotation.GetCurveNode(layer, True)
+        if curve_node.IsAnimated():
+            curve_string = getAnimationCurveName(curve_node, True)
             curve_list.append(curve_string)
 
-        curve = node.LclTranslation.GetCurve(layer, "Z")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclRotation.GetCurve(layer, "X")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclRotation.GetCurve(layer, "Y")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclRotation.GetCurve(layer, "Z")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclScaling.GetCurve(layer, "X")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclScaling.GetCurve(layer, "Y")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
-            curve_list.append(curve_string)
-
-        curve = node.LclScaling.GetCurve(layer, "Z")
-        if curve:
-            curve_string = getAnimationCurveName(curve, True)
+        curve_node = node.LclScaling.GetCurveNode(layer, True)
+        if curve_node.IsAnimated():
+            curve_string = getAnimationCurveName(curve_node, True)
             curve_list.append(curve_string)
         
     output = [
@@ -2000,7 +2010,7 @@ def generate_animation_layer_string(layer, scene):
     '}'
     ]
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return generateMultiLineString( output, '\n\t\t', 1 )
 
 def generate_animation_layer_list(scene):
     layer_list = []
@@ -2028,14 +2038,14 @@ def generate_animation_string(animation, scene):
         layer_list.append(layer_string)
 
     output = [
-    '\t' + LabelString( getAnimationName( animation, True ) ) + ' : {',
+    '\t' + LabelString( getAnimationName( animation ) ) + ' : {',
     '	"start" : ' + str( start_time.GetSecondDouble() ) + ',',
     '	"stop" : ' + str( stop_time.GetSecondDouble() ) + ',',
     '	"layers" : ' + ArrayString( ",".join(LabelString( l ) for l in layer_list) ),
     '}'
     ]
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return generateMultiLineString( output, '\n\t\t', 1 )
 
 def generate_animation_list(scene):
     animation_list = []
@@ -2557,9 +2567,19 @@ def extract_scene(scene, filename):
 
     '	"animations" :',
     '	{',
+    '		"takes" : {',
     '\t' + 	animation_takes,
+    '		},',
+    '',
+
+    '		"layers" : {',
     '\t' + 	animation_layers,
+    '		},',
+    '',
+
+    '		"curves" : {',
     '\t' + 	animation_curves,
+    '		}',
     '	},',
     '',
 
