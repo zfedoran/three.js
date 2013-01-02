@@ -1665,6 +1665,7 @@ def generate_mesh_object_string(node, padding):
     position = transform.GetT()
     scale = transform.GetS()
     rotation = getRadians(transform.GetR())
+    quaternion = transform.GetQ()
 
     material_count = node.GetMaterialCount()
     material_name = ""
@@ -1690,6 +1691,7 @@ def generate_mesh_object_string(node, padding):
     '	"material" : ' + LabelString( material_name ) + ',',
     '	"position" : ' + Vector3String( position ) + ',',
     '	"rotation" : ' + Vector3String( rotation ) + ',',
+    '	"quaternion" : ' + Vector4String( quaternion ) + ',',
     '	"scale"	   : ' + Vector3String( scale ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
 
@@ -1709,6 +1711,7 @@ def generate_object_string(node, padding):
     position = transform.GetT()
     scale = transform.GetS()
     rotation = getRadians(transform.GetR())
+    quaternion = transform.GetQ()
 
     node_type = ""
     if node.GetNodeAttribute() == None:
@@ -1722,6 +1725,7 @@ def generate_object_string(node, padding):
     '	"fbx_type" : ' + LabelString( node_type ) + ',',
     '	"position" : ' + Vector3String( position ) + ',',
     '	"rotation" : ' + Vector3String( rotation ) + ',',
+    '	"quaternion" : ' + Vector4String( quaternion ) + ',',
     '	"scale"	   : ' + Vector3String( scale ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
 
@@ -1818,7 +1822,7 @@ def generate_pose_node_string(pose, node_index, padding):
 
     LabelString( getObjectName( node ) ) + ' : {',
     '	"position" : ' + Vector3String( t ) + ',',
-    '	"rotation" : ' + Vector4String( q ) + ',',
+    '	"quaternion" : ' + Vector4String( q ) + ',',
     '	"scale"	   : ' + Vector3String( sc ) + ',',
     '	"shear"	   : ' + Vector3String( sh ),
     '},'
