@@ -1877,26 +1877,27 @@ def generate_animation_keyframe_time_list(curve_node):
     key_times.sort(key=lambda time: time.GetSecondDouble())
     return key_times
 
-def generate_animation_key_list(curve_node):
+def generate_animation_key_list(curve_node, channel):
     keyframes = []
 
     channels_count = curve_node.GetChannelsCount()
     time_list = generate_animation_keyframe_time_list(curve_node)
 
+    curve = curve_node.GetCurve(channel)
+    if not curve:
+        return keyframes
+
     for i in range(len(time_list)):
         time = time_list[i]
+        key_index = curve.KeyFind(time)[1]
+        key_interpolation_mode = curve.KeyGetInterpolation(key_index)
+        key_value = curve.KeyGetValue(key_index)
 
-        interp = 0
-        for j in range(channels_count):
-            curve = curve_node.GetCurve(j)
-            if curve:
-                key_index = curve.KeyFind(time)[1]
-                if interp < curve.KeyGetInterpolation(key_index):
-                    interp = curve.KeyGetInterpolation(key_index)
+        isConstantInterpolation = (key_interpolation_mode == 2)
+        isLinearInterpolation = (key_interpolation_mode == 4)
+        isCubicInterpolation = (key_interpolation_mode == 8)
 
-        isConstantInterpolation = (interp == 2)
-        isLinearInterpolation = (interp == 4)
-        isCubicInterpolation = (interp == 8)
+        #TODO: Fill in other important bitmask keyframe data
 
         # Type bitmask
         # 00 00 00 00 = constant interpolation mode
@@ -1919,29 +1920,23 @@ def generate_animation_key_list(curve_node):
         keyframe_type = setBit(keyframe_type, 6, False)
         keyframe_type = setBit(keyframe_type, 7, False)
 
-        keyframes.append(keyframe_type)
         keyframes.append(time.GetSecondDouble())
-        for j in range(channels_count):
-            curve = curve_node.GetCurve(j)
-            if curve:
-                key_index = curve.KeyFind(time)[1]
-                value = curve.KeyGetValue(key_index)
-            else:
-                value = curve_node.GetChannelValue(j, 0)
-            keyframes.append(value)
+        keyframes.append(key_value)
+        keyframes.append(keyframe_type)
 
     return keyframes
 
-def generate_animation_curve_string(curve_node, node, prop):
-    channels_count = curve_node.GetChannelsCount()
-    key_list = generate_animation_key_list(curve_node)
+def generate_animation_curve_string(curve_node, node, prop, channel):
+    key_list = generate_animation_key_list(curve_node, channel)
     keys = ",".join(str(k) for k in key_list)
+    channel_name = ["x", "y", "z", "w"][channel]
+    curve = curve_node.GetCurve(channel)
 
     output = [
-    '\t' + LabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
+    '\t' + LabelString( getAnimationCurveName( curve, True ) ) + ' : {',
     '	"object" : ' + LabelString( getObjectName( node ) ) + ',',
     '	"property" : ' + LabelString( prop ) + ',',
-    '	"nchannels" : ' + str( channels_count ) + ',',
+    '	"channel" : ' + LabelString( channel_name ) + ',',
     '	"keys" : ' + ArrayString( keys ),
     '}'
     ]
@@ -1964,17 +1959,29 @@ def generate_animation_curve_list(scene):
 
                 curve_node = node.LclTranslation.GetCurveNode(layer, True)
                 if curve_node.IsAnimated():
-                    curve_string = generate_animation_curve_string(curve_node, node, "position")
+                    curve_string = generate_animation_curve_string(curve_node, node, "position", 0)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "position", 1)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "position", 2)
                     curve_list.append(curve_string)
 
                 curve_node = node.LclRotation.GetCurveNode(layer, True)
                 if curve_node.IsAnimated():
-                    curve_string = generate_animation_curve_string(curve_node, node, "rotation")
+                    curve_string = generate_animation_curve_string(curve_node, node, "rotation", 0)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "rotation", 1)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "rotation", 2)
                     curve_list.append(curve_string)
 
                 curve_node = node.LclScaling.GetCurveNode(layer, True)
                 if curve_node.IsAnimated():
-                    curve_string = generate_animation_curve_string(curve_node, node, "scale")
+                    curve_string = generate_animation_curve_string(curve_node, node, "scale", 0)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "scale", 1)
+                    curve_list.append(curve_string)
+                    curve_string = generate_animation_curve_string(curve_node, node, "scale", 2)
                     curve_list.append(curve_string)
 
     return curve_list
@@ -1989,17 +1996,29 @@ def generate_animation_layer_string(layer, scene):
 
         curve_node = node.LclTranslation.GetCurveNode(layer, True)
         if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(0), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(1), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(2), True)
             curve_list.append(curve_string)
 
         curve_node = node.LclRotation.GetCurveNode(layer, True)
         if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(0), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(1), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(2), True)
             curve_list.append(curve_string)
 
         curve_node = node.LclScaling.GetCurveNode(layer, True)
         if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(0), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(1), True)
+            curve_list.append(curve_string)
+            curve_string = getAnimationCurveName(curve_node.GetCurve(2), True)
             curve_list.append(curve_string)
         
     output = [
