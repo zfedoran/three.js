@@ -1823,8 +1823,7 @@ def generate_pose_node_string(pose, node_index, padding):
     LabelString( getObjectName( node ) ) + ' : {',
     '	"position" : ' + Vector3String( t ) + ',',
     '	"quaternion" : ' + Vector4String( q ) + ',',
-    '	"scale"	   : ' + Vector3String( sc ) + ',',
-    '	"shear"	   : ' + Vector3String( sh ),
+    '	"scale"	   : ' + Vector3String( sc ),
     '},'
 
     ]
