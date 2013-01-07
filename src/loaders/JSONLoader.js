@@ -116,26 +116,30 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
       if ( version <= 4.0 && data.animations ) {
 
-        var tracks = data.animations.tracks;
+        var takes = data.animations.takes;
         var layers = data.animations.layers;
         var curves = data.animations.curves;
-        var skinnign = json.skinning;
+        var skinning = json.skinning;
 
-        if ( tracks && layers && curves && skinning ) {
+        var ntakes = Object.keys(takes).length;
+        var nlayers = Object.keys(layers).length;
+        var ncurves = Object.keys(curves).length;
 
-          var track = Object.keys(tracks)[0];
-          var layer = layers[track.layers[0]];
+        if ( ntakes > 0 && nlayers > 0 && ncurves > 0 && skinning ) {
+
+          var take = takes[Object.keys(takes)[0]];
+          var layer = layers[take.layers[0]];
           var root_bone = findRootBone( skinning.bones[0] );
 
           if ( root_bone ) {
-            var num_bones = skinning.bones[0].length;
+            var num_bones = skinning.bones.length;
             var bones = [];
             var hierarchy = [];
 
             for ( var i = 0; i < num_bones; i++ ) {
               var bone_name = skinning.bones[i];
               var bone_node = root_bone;
-              var parent_bone = findParent(bone_name, null, root_bone); 
+              var parent_bone = findParent(bone_name, root_bone); 
               var parent_index = -1;
 
               if ( parent_bone ) {
@@ -157,29 +161,15 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
               var keys = {};
 
-              for ( var j = 0; j < layer.curves.lenght; j++ ) {
+              for ( var j = 0; j < layer.curves.length; j++ ) {
                 var curve_name = layer.curves[j];
                 var curve = curves[curve_name];
 
                 if ( curve.object == bone_name ) {
-                  if ( curve.property == "position" ) {
-                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
-                      var time = curve.keys[k+0];
-                      var value = curve.keys[k+1];
-                      addKey( time, value, curve.property, curve.channel, keys);
-                    }
-                  } else if ( curve.property == "rotation" ) {
-                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
-                      var time = curve.keys[k+0];
-                      var value = curve.keys[k+1];
-                      addKey( time, value, curve.property, curve.channel, keys);
-                    }
-                  } else if ( curve.property == "scale" ) {
-                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
-                      var time = curve.keys[k+0];
-                      var value = curve.keys[k+1];
-                      addKey( time, value, curve.property, curve.channel, keys);
-                    }
+                  for ( var k = 0; k < curve.keys.length; k+=3 ) {
+                    var time = curve.keys[k+0];
+                    var value = curve.keys[k+1];
+                    addKey( time, value, curve.property, curve.channel, keys);
                   }
                 }
               }
@@ -189,7 +179,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
               for ( var j = 0; j < times.length; j++ ) {
                 var time = times[j];
                 var key = keys[time];
-                var pos, rotq, scl;
+                var pos, rot, rotq, scl;
 
                 if ( key.position ) {
                   pos = [];
@@ -206,6 +196,13 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                   rotq.push(key.quaternion.w || bone_node.quaternion.w);
                 }
 
+                if ( key.rotation ) {
+                  rot = [];
+                  rot.push(key.rotation.x*3.14/180 || bone_node.rotation.x);
+                  rot.push(key.rotation.y*3.14/180 || bone_node.rotation.y);
+                  rot.push(key.rotation.z*3.14/180 || bone_node.rotation.z);
+                }
+
                 if ( key.scale ) {
                   scl = [];
                   scl.push(key.scale.x || bone_node.scale.x);
@@ -215,15 +212,10 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
                 var keyframe = { time: time };
 
-                if ( pos ) {
-                  keyframe.pos = pos;
-                }
-                if ( rotq ) {
-                  keyframe.rotq = rotq;
-                }
-                if ( scl ) {
-                  keyframe.scl = scl;
-                }
+                if ( pos ) { keyframe.pos = pos; }
+                if ( rot ) { keyframe.rot = rot; }
+                if ( rotq ) { keyframe.rotq = rotq; }
+                if ( scl ) { keyframe.scl = scl; }
 
                 keyframes.push(keyframe);
               }
@@ -238,8 +230,8 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
             json.skinIndices = skinning.indices;
             json.skinWeights = skinning.weights;
             json.animation = {
-              "name": track.name,
-              "length": track.stop - track.start,
+              "name": Object.keys(takes)[0],
+              "length": take.stop - take.start,
               "fps": 25, //TODO: fix this
               "hierarchy": hierarchy
             };
@@ -249,24 +241,26 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
     }
 
     function addKey( time, value, property, channel, dictionary ) { 
-      if ( !time in dictionary ) { 
-        var key = {};
-        key[property] = {};
-        dictionary[time] = key; 
+      if ( !(time in dictionary) ) { 
+        dictionary[time] = {}; 
+      }
+      if ( !(property in dictionary[time]) ) {
+        dictionary[time][property] = {};
       }
       dictionary[time][property][channel] = value;
     }
 
     function findRootBone( name ) {
-      var children = Object.keys(sceneJson.objects);
-      var num_children = children.length;
+      var child_name_list = Object.keys(sceneJson.objects);
+      var num_children = child_name_list.length;
 
       for ( var i = 0; i < num_children; i++ ) {
-        var node = children[i];
-        if ( node.name == name ) {
+        var node_name = child_name_list[i];
+        var node = sceneJson.objects[node_name];
+        if ( node_name == name ) {
           return node;
         } else {
-          node = findParent( name, null, children[i] ); 
+          node = findParent( name, sceneJson.objects[child_name_list[i]] ); 
           if ( node ) {
             return node.children[name];
           }
@@ -275,17 +269,20 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
       return null;
     }
 
-    function findParent( child_name, parent_node, current_node ) {
-      if ( current_node.name == child_name ) {
-        return parent_node;
-      }
-
-      if ( current_node.children ) {
-        var children = Object.keys(current_node.children);
-        var num_children = children.length;
+    function findParent( child_name, parent_node ) {
+      if ( parent_node.children ) {
+        var child_name_list = Object.keys(parent_node.children);
+        var num_children = child_name_list.length;
 
         for ( var i = 0; i < num_children; i++ ) {
-          var node = findParent( child_name, current_node, children[i] ); 
+          var current_child_name = child_name_list[i];
+
+          if ( current_child_name == child_name ) {
+            return parent_node;
+          }
+
+          var child_node = parent_node.children[current_child_name];
+          var node = findParent( child_name, child_node );
 
           if ( node ) {
             return node;
