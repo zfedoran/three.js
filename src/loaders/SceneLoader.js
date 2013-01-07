@@ -815,7 +815,8 @@ THREE.SceneLoader.prototype.parse = function ( json, callbackFinished, url ) {
 		} else if ( geoJSON.type === "embedded" ) {
 
 			var modelJson = data.embeds[ geoJSON.id ],
-				texture_path = "";
+          sceneJson = data,
+          texture_path = "";
 
 			// pass metadata along to jsonLoader so it knows the format version
 
@@ -824,7 +825,7 @@ THREE.SceneLoader.prototype.parse = function ( json, callbackFinished, url ) {
 			if ( modelJson ) {
 
 				var jsonLoader = this.geometryHandlerMap[ "ascii" ][ "loaderObject" ];
-				jsonLoader.createModel( modelJson, create_callback_embed( geoID ), texture_path );
+				jsonLoader.createModel( modelJson, create_callback_embed( geoID ), texture_path, sceneJson );
 
 			}
 

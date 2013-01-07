@@ -90,11 +90,15 @@ THREE.JSONLoader.prototype.loadAjaxJSON = function ( context, url, callback, tex
 
 };
 
-THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath ) {
+THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath, sceneJson ) {
 
 	var scope = this,
 	geometry = new THREE.Geometry(),
 	scale = ( json.scale !== undefined ) ? 1.0 / json.scale : 1.0;
+
+  if ( sceneJson && sceneJson.animations ) {
+    preProcessAnimations();
+  }
 
 	parseModel( scale );
 
@@ -103,6 +107,194 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath 
 
 	geometry.computeCentroids();
 	geometry.computeFaceNormals();
+
+  function preProcessAnimations() {
+    var data = sceneJson;
+
+    if ( data.metadata ) {
+      var version = data.metadata.formatVersion;
+
+      if ( version <= 4.0 && data.animations ) {
+
+        var tracks = data.animations.tracks;
+        var layers = data.animations.layers;
+        var curves = data.animations.curves;
+        var skinnign = json.skinning;
+
+        if ( tracks && layers && curves && skinning ) {
+
+          var track = Object.keys(tracks)[0];
+          var layer = layers[track.layers[0]];
+          var root_bone = findRootBone( skinning.bones[0] );
+
+          if ( root_bone ) {
+            var num_bones = skinning.bones[0].length;
+            var bones = [];
+            var hierarchy = [];
+
+            for ( var i = 0; i < num_bones; i++ ) {
+              var bone_name = skinning.bones[i];
+              var bone_node = root_bone;
+              var parent_bone = findParent(bone_name, null, root_bone); 
+              var parent_index = -1;
+
+              if ( parent_bone ) {
+                parent_index = skinning.bones.indexOf(parent_bone.name);
+                bone_node = parent_bone.children[bone_name];
+              }
+
+              //TODO: bone_node should be set using the "poses" object
+              var bone = {
+                "parent" : parent_index,
+                "name" : bone_name,
+                "pos" : bone_node.position,
+                "rot" : bone_node.rotation,
+                "rotq" : bone_node.quaternion,
+                "scl" : bone_node.scale
+              }
+
+              bones.push(bone);
+
+              var keys = {};
+
+              for ( var j = 0; j < layer.curves.lenght; j++ ) {
+                var curve_name = layer.curves[j];
+                var curve = curves[curve_name];
+
+                if ( curve.object == bone_name ) {
+                  if ( curve.property == "position" ) {
+                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
+                      var time = curve.keys[k+0];
+                      var value = curve.keys[k+1];
+                      addKey( time, value, curve.property, curve.channel, keys);
+                    }
+                  } else if ( curve.property == "rotation" ) {
+                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
+                      var time = curve.keys[k+0];
+                      var value = curve.keys[k+1];
+                      addKey( time, value, curve.property, curve.channel, keys);
+                    }
+                  } else if ( curve.property == "scale" ) {
+                    for ( var k = 0; k < curve.keys.length; k+=3 ) {
+                      var time = curve.keys[k+0];
+                      var value = curve.keys[k+1];
+                      addKey( time, value, curve.property, curve.channel, keys);
+                    }
+                  }
+                }
+              }
+
+              var keyframes = [];
+              var times = Object.keys(keys).sort();
+              for ( var j = 0; j < times.length; j++ ) {
+                var time = times[j];
+                var key = keys[time];
+                var pos, rotq, scl;
+
+                if ( key.position ) {
+                  pos = [];
+                  pos.push(key.position.x || bone_node.position.x);
+                  pos.push(key.position.y || bone_node.position.y);
+                  pos.push(key.position.z || bone_node.position.z);
+                }
+
+                if ( key.quaternion ) {
+                  rotq = [];
+                  rotq.push(key.quaternion.x || bone_node.quaternion.x);
+                  rotq.push(key.quaternion.y || bone_node.quaternion.y);
+                  rotq.push(key.quaternion.z || bone_node.quaternion.z);
+                  rotq.push(key.quaternion.w || bone_node.quaternion.w);
+                }
+
+                if ( key.scale ) {
+                  scl = [];
+                  scl.push(key.scale.x || bone_node.scale.x);
+                  scl.push(key.scale.y || bone_node.scale.y);
+                  scl.push(key.scale.z || bone_node.scale.z);
+                }
+
+                var keyframe = { time: time };
+
+                if ( pos ) {
+                  keyframe.pos = pos;
+                }
+                if ( rotq ) {
+                  keyframe.rotq = rotq;
+                }
+                if ( scl ) {
+                  keyframe.scl = scl;
+                }
+
+                keyframes.push(keyframe);
+              }
+
+              hierarchy.push({
+                "parent" : parent_index,
+                "keys" : keyframes
+              });
+            }
+
+            json.bones = bones;
+            json.skinIndices = skinning.indices;
+            json.skinWeights = skinning.weights;
+            json.animation = {
+              "name": track.name,
+              "length": track.stop - track.start,
+              "fps": 25, //TODO: fix this
+              "hierarchy": hierarchy
+            };
+          }
+        }
+      }
+    }
+
+    function addKey( time, value, property, channel, dictionary ) { 
+      if ( !time in dictionary ) { 
+        var key = {};
+        key[property] = {};
+        dictionary[time] = key; 
+      }
+      dictionary[time][property][channel] = value;
+    }
+
+    function findRootBone( name ) {
+      var children = Object.keys(sceneJson.objects);
+      var num_children = children.length;
+
+      for ( var i = 0; i < num_children; i++ ) {
+        var node = children[i];
+        if ( node.name == name ) {
+          return node;
+        } else {
+          node = findParent( name, null, children[i] ); 
+          if ( node ) {
+            return node.children[name];
+          }
+        }
+      }
+      return null;
+    }
+
+    function findParent( child_name, parent_node, current_node ) {
+      if ( current_node.name == child_name ) {
+        return parent_node;
+      }
+
+      if ( current_node.children ) {
+        var children = Object.keys(current_node.children);
+        var num_children = children.length;
+
+        for ( var i = 0; i < num_children; i++ ) {
+          var node = findParent( child_name, current_node, children[i] ); 
+
+          if ( node ) {
+            return node;
+          }
+        }
+      }
+      return null;
+    }
+  }
 
 	function parseModel( scale ) {
 
