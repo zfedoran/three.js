@@ -198,9 +198,9 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
                 if ( key.rotation ) {
                   rot = [];
-                  rot.push(key.rotation.x*3.14/180 || bone_node.rotation.x);
-                  rot.push(key.rotation.y*3.14/180 || bone_node.rotation.y);
-                  rot.push(key.rotation.z*3.14/180 || bone_node.rotation.z);
+                  rot.push(key.rotation.x || bone_node.rotation.x);
+                  rot.push(key.rotation.y || bone_node.rotation.y);
+                  rot.push(key.rotation.z || bone_node.rotation.z);
                 }
 
                 if ( key.scale ) {
