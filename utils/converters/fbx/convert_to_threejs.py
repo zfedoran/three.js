@@ -849,10 +849,10 @@ def generate_mesh_string_for_scene_output(node):
             for j in range(len(vertex_weights)):
                 weight = vertex_weights[j]
                 if weight[0] > 0:
-                    node = weight[1].GetLink()
+                    bone_node = weight[1].GetLink()
                     for k in range(len(skinning_bones)):
                         bone = skinning_bones[k]
-                        if bone == node:
+                        if bone == bone_node:
                             skinning_indices.append(k)
                 else:
                     skinning_indices.append(0)
