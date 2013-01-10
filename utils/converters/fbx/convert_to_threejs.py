@@ -1681,6 +1681,10 @@ def generate_mesh_object_string(node, padding):
                 for i in range(material_count):
                     material = node.GetMaterial(i)
                     material_names.append( getMaterialName(material) )
+
+        if not material_count > 1 and not len(material_names) > 0:
+            material_names.append('')
+
         #If this mesh has more than one material, use a proxy material
         material_name = getMaterialName( node, True) if material_count > 1 else material_names[0] 
 
@@ -1859,38 +1863,25 @@ def generate_pose_list(scene):
 # #####################################################
 # Parse - Animations
 # #####################################################
-
-def generate_animation_keyframe_time_list(curve_node):
-    channels_count = curve_node.GetChannelsCount()
-    key_times = []
-
-    for i in range(channels_count):
-        curve = curve_node.GetCurve(i)
-        if curve:
-            keyframes_count = curve.KeyGetCount()
-            for j in range(keyframes_count):
-                time = curve.KeyGetTime(j)
-                if time not in key_times:
-                    key_times.append(time)
-
-    key_times.sort(key=lambda time: time.GetSecondDouble())
-    return key_times
-
-def generate_animation_key_list(curve_node, channel):
+def generate_animation_key_list(curve, prop):
     keyframes = []
+    time_list = []
 
-    channels_count = curve_node.GetChannelsCount()
-    time_list = generate_animation_keyframe_time_list(curve_node)
+    keyframes_count = curve.KeyGetCount()
+    for i in range(keyframes_count):
+        time = curve.KeyGetTime(i)
+        time_list.append(time)
 
-    curve = curve_node.GetCurve(channel)
-    if not curve:
-        return keyframes
+    time_list.sort(key=lambda time: time.GetSecondDouble())
 
     for i in range(len(time_list)):
         time = time_list[i]
         key_index = curve.KeyFind(time)[1]
         key_interpolation_mode = curve.KeyGetInterpolation(key_index)
         key_value = curve.KeyGetValue(key_index)
+
+        if prop == "rotation":
+            key_value = key_value * math.pi / 180
 
         isConstantInterpolation = (key_interpolation_mode == 2)
         isLinearInterpolation = (key_interpolation_mode == 4)
@@ -1925,8 +1916,8 @@ def generate_animation_key_list(curve_node, channel):
 
     return keyframes
 
-def generate_animation_curve_string(curve_node, node, prop, channel):
-    key_list = generate_animation_key_list(curve_node, channel)
+def generate_animation_curve_string(curve_node, curve, node, prop, channel):
+    key_list = generate_animation_key_list(curve, prop)
     keys = ",".join(str(k) for k in key_list)
     channel_name = ["x", "y", "z", "w"][channel]
     curve = curve_node.GetCurve(channel)
@@ -1945,6 +1936,10 @@ def generate_animation_curve_string(curve_node, node, prop, channel):
 def generate_animation_curve_list(scene):
     curve_list = []
 
+    unrollFilter = FbxAnimCurveFilterUnroll()
+    reduceFilter = FbxAnimCurveFilterKeyReducer()
+    syncFilter = FbxAnimCurveFilterKeySync()
+
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
     for a in range(animation_count):
         animation = scene.GetSrcObject(FbxAnimStack.ClassId, a)
@@ -1957,27 +1952,34 @@ def generate_animation_curve_list(scene):
                 node = scene.GetNode(n)
 
                 curve_node = node.LclTranslation.GetCurveNode(layer, True)
+                reduceFilter.Apply(curve_node)
+                syncFilter.Apply(curve_node)
                 if curve_node.IsAnimated():
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, node, "position", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "position", i)
                             curve_list.append(curve_string)
 
                 curve_node = node.LclRotation.GetCurveNode(layer, True)
+                unrollFilter.Apply(curve_node)
+                reduceFilter.Apply(curve_node)
+                syncFilter.Apply(curve_node)
                 if curve_node.IsAnimated():
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, node, "rotation", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "rotation", i)
                             curve_list.append(curve_string)
 
                 curve_node = node.LclScaling.GetCurveNode(layer, True)
+                reduceFilter.Apply(curve_node)
+                syncFilter.Apply(curve_node)
                 if curve_node.IsAnimated():
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, node, "scale", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "scale", i)
                             curve_list.append(curve_string)
 
     return curve_list
