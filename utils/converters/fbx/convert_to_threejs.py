@@ -854,6 +854,7 @@ def generate_mesh_string_for_scene_output(node):
                         bone = skinning_bones[k]
                         if bone == bone_node:
                             skinning_indices.append(k)
+                            break
                 else:
                     skinning_indices.append(0)
 
@@ -1962,7 +1963,7 @@ def generate_animation_curve_list(scene):
                             curve_list.append(curve_string)
 
                 curve_node = node.LclRotation.GetCurveNode(layer, True)
-                unrollFilter.Apply(curve_node)
+                #unrollFilter.Apply(curve_node)
                 reduceFilter.Apply(curve_node)
                 syncFilter.Apply(curve_node)
                 if curve_node.IsAnimated():
