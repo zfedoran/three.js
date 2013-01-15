@@ -125,6 +125,8 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
         var nlayers = Object.keys(layers).length;
         var ncurves = Object.keys(curves).length;
 
+        parseSceneHierarchy(sceneJson.objects);
+
         if ( ntakes > 0 && nlayers > 0 && ncurves > 0 && skinning ) {
 
           var take = takes[Object.keys(takes)[0]];
@@ -138,13 +140,11 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
             for ( var i = 0; i < num_bones; i++ ) {
               var bone_name = skinning.bones[i];
-              var bone_node = root_bone;
-              var parent_bone = findParent(bone_name, root_bone); 
+              var bone_node = findNode(bone_name, root_bone); 
               var parent_index = -1;
 
-              if ( parent_bone ) {
-                parent_index = skinning.bones.indexOf(parent_bone.name);
-                bone_node = parent_bone.children[bone_name];
+              if (bone_node._parent) {
+                parent_index = skinning.bones.indexOf(bone_node._parent._name);
               }
 
               //TODO: bone_node should be set using the "poses" object
@@ -174,6 +174,35 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                 }
               }
 
+              if (Object.keys(keys).length == 0) {
+
+                addKey(0, 0, "rotation", "x", keys);
+                addKey(0, 0, "rotation", "y", keys);
+                addKey(0, 0, "rotation", "z", keys);
+
+                addKey(0, 0, "position", "x", keys);
+                addKey(0, 0, "position", "y", keys);
+                addKey(0, 0, "position", "z", keys);
+
+                addKey(0, 0, "scale", "x", keys);
+                addKey(0, 0, "scale", "y", keys);
+                addKey(0, 0, "scale", "z", keys);
+
+                var time = take.stop - take.start;
+                addKey(time, 0, "rotation", "x", keys);
+                addKey(time, 0, "rotation", "y", keys);
+                addKey(time, 0, "rotation", "z", keys);
+
+                addKey(time, 0, "position", "x", keys);
+                addKey(time, 0, "position", "y", keys);
+                addKey(time, 0, "position", "z", keys);
+                
+                addKey(time, 0, "scale", "x", keys);
+                addKey(time, 0, "scale", "y", keys);
+                addKey(time, 0, "scale", "z", keys);
+
+              }
+
               var keyframes = [];
               var times = Object.keys(keys).sort();
               for ( var j = 0; j < times.length; j++ ) {
@@ -183,31 +212,34 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
                 if ( key.position ) {
                   pos = [];
-                  pos.push(key.position.x || bone_node.position.x);
-                  pos.push(key.position.y || bone_node.position.y);
-                  pos.push(key.position.z || bone_node.position.z);
+                  pos.push(key.position.x || bone_node.position[0]);
+                  pos.push(key.position.y || bone_node.position[1]);
+                  pos.push(key.position.z || bone_node.position[2]);
                 }
 
                 if ( key.quaternion ) {
                   rotq = [];
-                  rotq.push(key.quaternion.x || bone_node.quaternion.x);
-                  rotq.push(key.quaternion.y || bone_node.quaternion.y);
-                  rotq.push(key.quaternion.z || bone_node.quaternion.z);
-                  rotq.push(key.quaternion.w || bone_node.quaternion.w);
+                  rotq.push(key.quaternion.x || bone_node.quaternion[0]);
+                  rotq.push(key.quaternion.y || bone_node.quaternion[1]);
+                  rotq.push(key.quaternion.z || bone_node.quaternion[2]);
+                  rotq.push(key.quaternion.w || bone_node.quaternion[3]);
                 }
 
                 if ( key.rotation ) {
                   rot = [];
-                  rot.push(key.rotation.x || bone_node.rotation.x);
-                  rot.push(key.rotation.y || bone_node.rotation.y);
-                  rot.push(key.rotation.z || bone_node.rotation.z);
+                  rot.push(key.rotation.x || bone_node.rotation[0]);
+                  rot.push(key.rotation.y || bone_node.rotation[1]);
+                  rot.push(key.rotation.z || bone_node.rotation[2]);
+                  var quat = new THREE.Quaternion();
+                  quat.setFromEuler({x:rot[0],y:rot[1],z:rot[2]});
+                  rot = quat;
                 }
 
                 if ( key.scale ) {
                   scl = [];
-                  scl.push(key.scale.x || bone_node.scale.x);
-                  scl.push(key.scale.y || bone_node.scale.y);
-                  scl.push(key.scale.z || bone_node.scale.z);
+                  scl.push(key.scale.x || bone_node.scale[0]);
+                  scl.push(key.scale.y || bone_node.scale[1]);
+                  scl.push(key.scale.z || bone_node.scale[2]);
                 }
 
                 var keyframe = { time: time };
@@ -235,6 +267,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
               "fps": 25, //TODO: fix this
               "hierarchy": hierarchy
             };
+            window.json = json;
           }
         }
       }
@@ -253,43 +286,62 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
     function findRootBone( name ) {
       var child_name_list = Object.keys(sceneJson.objects);
       var num_children = child_name_list.length;
-
-      for ( var i = 0; i < num_children; i++ ) {
+      for ( var i = num_children - 1; i >= 0 ; i-- ) {
         var node_name = child_name_list[i];
         var node = sceneJson.objects[node_name];
         if ( node_name == name ) {
           return node;
         } else {
-          node = findParent( name, sceneJson.objects[child_name_list[i]] ); 
-          if ( node ) {
-            return node.children[name];
-          }
-        }
-      }
-      return null;
-    }
-
-    function findParent( child_name, parent_node ) {
-      if ( parent_node.children ) {
-        var child_name_list = Object.keys(parent_node.children);
-        var num_children = child_name_list.length;
-
-        for ( var i = 0; i < num_children; i++ ) {
-          var current_child_name = child_name_list[i];
-
-          if ( current_child_name == child_name ) {
-            return parent_node;
-          }
-
-          var child_node = parent_node.children[current_child_name];
-          var node = findParent( child_name, child_node );
-
+          node = findNode( name, sceneJson.objects[child_name_list[i]] ); 
           if ( node ) {
             return node;
           }
         }
       }
       return null;
+    }
+
+    function findNode( name, current_node ) {
+      if ( current_node._name == name ) {
+        return current_node;
+      }
+      if ( current_node.children ) {
+        var child_name_list = Object.keys(current_node.children);
+        var num_children = child_name_list.length;
+        for ( var i = num_children - 1; i >= 0 ; i-- ) {
+          var child_name = child_name_list[i];
+          var child_node = current_node.children[child_name];
+          var node = findNode( name, child_node );
+          if (node) {
+            return node;
+          }
+        }
+      }
+    }
+
+    function parseSceneHierarchy( scene ) {
+      var child_name_list = Object.keys(scene);
+      var num_children = child_name_list.length;
+      for ( var i = num_children - 1; i >= 0 ; i-- ) {
+        var node_name = child_name_list[i];
+        var node = scene[node_name];
+        node._name = node_name;
+        parseNodeHierarchy( node );
+      }
+    }
+
+    function parseNodeHierarchy( current_node ) {
+      if ( current_node.children ) {
+        var child_name_list = Object.keys(current_node.children);
+        var num_children = child_name_list.length;
+        for ( var i = num_children - 1; i >= 0 ; i-- ) {
+          var child_name = child_name_list[i];
+          var child_node = current_node.children[child_name];
+          child_node._name = child_name;
+          child_node._parent = current_node;
+          var node = parseNodeHierarchy( child_node );
+        }
+      }
     }
   }
 

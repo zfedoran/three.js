@@ -1864,7 +1864,7 @@ def generate_pose_list(scene):
 # #####################################################
 # Parse - Animations
 # #####################################################
-def generate_animation_key_list(curve, prop):
+def generate_animation_key_list(curve, prop, animation):
     keyframes = []
     time_list = []
 
@@ -1873,12 +1873,34 @@ def generate_animation_key_list(curve, prop):
         time = curve.KeyGetTime(i)
         time_list.append(time)
 
+    time_span = animation.GetLocalTimeSpan() 
+    start_time = time_span.GetStart()
+    stop_time = time_span.GetStop()
+
+    start_found = False
+    stop_found = False
+
+    for i in range(keyframes_count):
+        if time_list[i].GetSecondDouble() <= start_time.GetSecondDouble():
+            start_found = True
+        if time_list[i].GetSecondDouble() >= stop_time.GetSecondDouble():
+            stop_found = True
+
+    if not start_found:
+        time_list.append(start_time)
+
+    if not stop_found:
+        time_list.append(stop_time)
+
     time_list.sort(key=lambda time: time.GetSecondDouble())
 
     for i in range(len(time_list)):
         time = time_list[i]
         key_index = curve.KeyFind(time)[1]
-        key_interpolation_mode = curve.KeyGetInterpolation(key_index)
+
+        # FBX SDK throws a segmentation fault sometimes :(
+        # key_interpolation_mode = curve.KeyGetInterpolation(key_index)
+        key_interpolation_mode = 2
         key_value = curve.KeyGetValue(key_index)
 
         if prop == "rotation":
@@ -1917,8 +1939,8 @@ def generate_animation_key_list(curve, prop):
 
     return keyframes
 
-def generate_animation_curve_string(curve_node, curve, node, prop, channel):
-    key_list = generate_animation_key_list(curve, prop)
+def generate_animation_curve_string(curve_node, curve, node, prop, channel, animation):
+    key_list = generate_animation_key_list(curve, prop, animation)
     keys = ",".join(str(k) for k in key_list)
     channel_name = ["x", "y", "z", "w"][channel]
     curve = curve_node.GetCurve(channel)
@@ -1959,18 +1981,18 @@ def generate_animation_curve_list(scene):
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, curve, node, "position", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "position", i, animation)
                             curve_list.append(curve_string)
 
                 curve_node = node.LclRotation.GetCurveNode(layer, True)
-                #unrollFilter.Apply(curve_node)
+                unrollFilter.Apply(curve_node)
                 reduceFilter.Apply(curve_node)
                 syncFilter.Apply(curve_node)
                 if curve_node.IsAnimated():
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, curve, node, "rotation", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "rotation", i, animation)
                             curve_list.append(curve_string)
 
                 curve_node = node.LclScaling.GetCurveNode(layer, True)
@@ -1980,7 +2002,7 @@ def generate_animation_curve_list(scene):
                     for i in range(curve_node.GetChannelsCount()):
                         curve = curve_node.GetCurve(i)
                         if curve:
-                            curve_string = generate_animation_curve_string(curve_node, curve, node, "scale", i)
+                            curve_string = generate_animation_curve_string(curve_node, curve, node, "scale", i, animation)
                             curve_list.append(curve_string)
 
     return curve_list

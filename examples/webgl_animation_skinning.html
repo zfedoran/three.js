@@ -39,10 +39,11 @@
 		click to start animation
 		</div>
 
-		<script src="../build/three.min.js"></script>
+		<script src="../build/three.js"></script>
 
 		<script src="js/Detector.js"></script>
 		<script src="js/libs/stats.min.js"></script>
+    <script src="js/controls/OrbitControls.js"></script>
 
 		<script>
 
@@ -61,71 +62,66 @@
 			var windowHalfX = window.innerWidth / 2;
 			var windowHalfY = window.innerHeight / 2;
 
-			var animations = [];
-			var buffalos = [];
-			var offset = [];
 
 			var floor, dz = 0, dstep = -10, playback = false;
 
 			var clock = new THREE.Clock();
+      var nemo, animation;
+
+      var boxes = [];
+      var controls;
+
 
 			function init() {
 
 				container = document.getElementById( 'container' );
 
 				camera = new THREE.PerspectiveCamera( 25, window.innerWidth / window.innerHeight, 1, 10000 );
-				camera.position.set( 0, 185, 2500 );
+				camera.position.set( 0, 185, 25 );
 
-				scene = new THREE.Scene();
-				scene.fog = new THREE.FogExp2( 0xffffff, 0.0003 );
-				scene.fog.color.setHSV( 0.1, 0.10, 1 );
+        var loader = new THREE.SceneLoader();
+        loader.load('obj/nemo/output.js', function(result) {
 
-				light = new THREE.DirectionalLight( 0xffffff, 1.5 );
-				light.position.set( 0, 1, 1 ).normalize();
-				scene.add( light );
+          scene = result.scene;
+          window.scene = scene;
 
-				var planeSimple = new THREE.PlaneGeometry( 200, 300 );
-				var planeTesselated = new THREE.PlaneGeometry( 100, 300, 25, 40 );
-				var matWire = new THREE.MeshBasicMaterial( { color :0x110000, wireframe: true, wireframeLinewidth: 2 } );
-				var matSolid = new THREE.MeshBasicMaterial( { color :0x330000 } );
-				matSolid.color.setHSV( 0.1, 0.75, 1 );
 
-				floor = new THREE.Mesh( planeSimple, matSolid );
-				floor.position.y = -10;
-				floor.rotation.x = - Math.PI / 2;
-				floor.scale.set( 25, 25, 25 );
-				scene.add( floor );
+          scene.fog = new THREE.FogExp2( 0xffffff, 0.0003 );
+          scene.fog.color.setHSV( 0.1, 0.10, 1 );
 
-				floor = new THREE.Mesh( planeTesselated, matWire );
-				floor.rotation.x = - Math.PI / 2;
-				floor.scale.set( 25, 25, 25 );
-				scene.add( floor );
+          light = new THREE.DirectionalLight( 0xffffff, 1.5 );
+          light.position.set( 0, 1, 1 ).normalize();
+          scene.add( light );
+          
+          initNemo(result.scene);
 
-				renderer = new THREE.WebGLRenderer( { clearColor: 0xffffff, clearAlpha: 1, antialias: true } );
-				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.setClearColor( scene.fog.color, 1 );
-				renderer.sortObjects = false;
+          renderer = new THREE.WebGLRenderer( { clearColor: 0xffffff, clearAlpha: 1, antialias: true } );
+          renderer.setSize( window.innerWidth, window.innerHeight );
+          renderer.setClearColor( scene.fog.color, 1 );
+          renderer.sortObjects = false;
+          renderer.autoClear = false;
 
-				container.appendChild( renderer.domElement );
+          container.appendChild( renderer.domElement );
 
-				stats = new Stats();
-				stats.domElement.style.position = 'absolute';
-				stats.domElement.style.top = '0px';
-				container.appendChild( stats.domElement );
+          controls = new THREE.OrbitControls( camera, renderer.domElement );
+          controls.rotateSpeed = 1.0;
+          controls.zoomSpeed = 1.2;
+          controls.panSpeed = 0.8;
+          controls.noZoom = false;
+          controls.noPan = false;
+          controls.staticMoving = true;
+          controls.dynamicDampingFactor = 0.3;
 
-				document.addEventListener( 'mousemove', onDocumentMouseMove, false );
-				document.addEventListener( 'click', startAnimation, false );
+          window.addEventListener( 'resize', onWindowResize, false );
 
-				var loader = new THREE.JSONLoader();
-				loader.load( "obj/buffalo/buffalo.js", createScene );
+          stats = new Stats();
+          stats.domElement.style.position = 'absolute';
+          stats.domElement.style.top = '0px';
+          container.appendChild( stats.domElement );
 
-				//
+          loop();
+        });
 
-				window.addEventListener( 'resize', onWindowResize, false );
-
-				//
-
-				loop();
 
 			}
 
@@ -141,67 +137,62 @@
 
 			}
 
-			function createScene( geometry, materials ) {
+			function initNemo(scene) {
 
-				buffalos = [];
-				animations = [];
+        var weights = {
+          uniforms: { },
+          vertexShader: [ THREE.ShaderChunk[ "skinning_pars_vertex" ], "varying vec3 vColor;", "void main() {", THREE.ShaderChunk[ "skinbase_vertex" ], THREE.ShaderChunk[ "skinning_vertex" ], THREE.ShaderChunk[ "default_vertex" ], "#ifdef USE_SKINNING", "vColor = vec3( skinWeight.x, skinWeight.y, 0);", "#else", "vColor = vec3( 0.0, 0.0, 0);", "#endif", "}" ].join("\n"),
+          fragmentShader: [ "varying vec3 vColor;", "void main() {", "gl_FragColor = vec4( vColor, 1.0 );", "}" ].join("\n")
+        };
 
-				var x, y,
-					buffalo, animation,
-					gridx = 25, gridz = 15,
-					sepx  = 150, sepz = 300;
-
-				var material = new THREE.MeshFaceMaterial( materials );
-
-				var originalMaterial = materials[ 0 ];
+				var originalMaterial = new THREE.ShaderMaterial( weights );
+				var material = new THREE.MeshFaceMaterial( [originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial] );
 
 				originalMaterial.skinning = true;
 				originalMaterial.transparent = true;
 				originalMaterial.alphaTest = 0.75;
 
-				THREE.AnimationHandler.add( geometry.animation );
+        for (var i = 0; i < scene.__objects.length; i++) {
+          var object = scene.__objects[i];
+          if (object instanceof THREE.SkinnedMesh ) {
+            nemo = object;
+            break;
+          }
+        }
 
-				for( x = 0; x < gridx; x ++ ) {
+        nemo.material = material;
+        THREE.AnimationHandler.add( nemo.geometry.animation );
 
-					for( z = 0; z < gridz; z ++ ) {
+				boxes_scene = new THREE.Scene();
+        light = new THREE.DirectionalLight( 0xffffff, 1.5 );
+        light.position.set( 0, 1, 1 ).normalize();
+        boxes_scene.add( light );
+        
+        var geometry = new THREE.CubeGeometry( 0.1, 0.1, 0.1 );
 
-						buffalo = new THREE.SkinnedMesh( geometry, material, false );
-
-						buffalo.position.x = - ( gridx - 1 ) * sepx * 0.5 + x * sepx + Math.random() * 0.5 * sepx;
-						buffalo.position.z = - ( gridz - 1 ) * sepz * 0.5 + z * sepz + Math.random() * 0.5 * sepz - 500;
-
-						buffalo.position.y = buffalo.geometry.boundingSphere.radius * 0.5;
-						buffalo.rotation.y = 0.2 - Math.random() * 0.4;
-
-						scene.add( buffalo );
-
-						buffalos.push( buffalo );
-
-						animation = new THREE.Animation( buffalo, "take_001" );
-						animations.push( animation );
-
-						offset.push( Math.random() );
-
-					}
-
+        for (var i = 0; i<nemo.bones.length; i++) {
+					var object = new THREE.Mesh( geometry, new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } ) );
+					object.material.ambient = object.material.color;
+          object.name = nemo.bones[i].name;
+          object.position = nemo.bones[i].position;
+					boxes_scene.add( object );
+					boxes.push( object );
 				}
+
+
+        animation = new THREE.Animation( nemo, "Default Take" );
+        window.animation = animation;
 
 			}
 
 			function startAnimation() {
 
-				for( var i = 0; i < animations.length; i ++ ) {
-
-					animations[ i ].offset = 0.05 * Math.random();
-					animations[ i ].play();
-
-				}
+					animation.play();
 
 				dz = dstep;
 				playback = true;
 
 			}
-
 
 			function onDocumentMouseMove( event ) {
 
@@ -210,36 +201,38 @@
 
 			}
 
+      var total = 0;
 			function loop() {
 
 				requestAnimationFrame( loop, renderer.domElement );
 
 				var delta = clock.getDelta();
+        total += delta * 0.1;
+
 
 				THREE.AnimationHandler.update( delta );
 
-				camera.position.x += ( mouseX - camera.position.x ) * 0.05;
-				camera.lookAt( scene.position );
+        if (nemo)
+        for (var i = 0; i<animation.hierarchy.length; i++) {
+          var object = boxes[i];
+          animation.hierarchy[i].updateMatrixWorld(true);
 
-				if ( buffalos && playback ) {
+          var translation, rotation, scale;
+          var decomposed = animation.hierarchy[i].matrixWorld.decompose();
 
-					var elapsed = clock.getElapsedTime();
-
-					camera.position.z += 2 * Math.sin( elapsed );
-
-					for( i = 0; i < buffalos.length; i++ ) {
-
-						buffalos[ i ].position.z += 2 * Math.sin( elapsed + offset[ i ] );
-
-					}
-
+          object.position = decomposed[0];
+          object.rotation = decomposed[1];
 				}
 
-				floor.position.z += dz;
-				if( floor.position.z < -500 ) floor.position.z = 0;
+				camera.lookAt( scene.position );
 
 
+        controls.update();
+
+		    renderer.clear();
 				renderer.render( scene, camera );
+        renderer.clear( false, true, false );
+				renderer.render( boxes_scene, camera );
 
 				stats.update();
 
