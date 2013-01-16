@@ -1956,15 +1956,22 @@ def generate_animation_key_time_list(curve_node):
 
     return time_list
 
+def generate_keyframe_string(key_list, index, channel_size, padding):
+    if index % (channel_size + 1) == 0:
+        return '\n' + PaddingString(padding) + str(round(key_list[index], 6))
+    else:
+        return str(round(key_list[index], 6))
+
 def generate_curve_node_string(node, curve_node, property_name, key_list):
-    keys = ",".join(str(k) for k in key_list)
+    channel_count = curve_node.GetChannelsCount()
+    keys = ",".join(generate_keyframe_string(key_list, i, channel_count, 5) for i in range(len(key_list)))
 
     output = [
 
     '\t' + LabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
     '	"object" : ' + LabelString( getObjectName( node ) ) + ',',
     '	"property" : ' + LabelString( property_name ) + ',',
-    '	"channels" : ' + str( curve_node.GetChannelsCount() ) + ',',
+    '	"channels" : ' + str( channel_count ) + ',',
     '	"keys" : ' + ArrayString( keys ),
     '}'
 
@@ -2007,7 +2014,6 @@ def generate_rotation_curve_string(node, curve_node):
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
 
-            keyframes.append(key_value)
             rotation.append(key_value)
         keyframes.extend(rotation)
 
@@ -2028,7 +2034,6 @@ def generate_scale_curve_string(node, curve_node):
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
 
-            keyframes.append(key_value)
             scale.append(key_value)
         keyframes.extend(scale)
 
