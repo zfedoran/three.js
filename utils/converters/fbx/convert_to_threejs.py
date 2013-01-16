@@ -137,8 +137,8 @@ def getAnimationCurveName(c, force_prefix = False):
 def getPoseName(p, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Pose_%s" % p.GetUniqueID()
-    return prefix 
+        prefix = "Pose_%s_" % p.GetUniqueID()
+    return prefix + p.GetName()
 
 def getFogName(f, force_prefix = False):
     prefix = ""
@@ -842,7 +842,9 @@ def generate_mesh_string_for_scene_output(node):
 
         skinning_weights = process_mesh_skin_weights(mesh_list)
         skinning_indices = []
-        skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list)
+
+        #TODO: merge skeletons when len(mesh_list) > 0
+        skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list[0])
 
         for i in range(len(skinning_weights)):
             vertex_weights = skinning_weights[i]
@@ -1812,9 +1814,66 @@ def generate_scene_objects_string(scene):
 # #####################################################
 # Parse - Poses
 # #####################################################
-def generate_pose_node_string(pose, node_index, padding):
-    node = pose.GetNode(node_index)
-    transform = pose.GetMatrix(node_index)
+
+#def generate_pose_node_string(pose, node_index, padding):
+#    node = pose.GetNode(node_index)
+#    transform = pose.GetMatrix(node_index)
+#
+#    t = FbxVector4()
+#    q = FbxQuaternion()
+#    sh = FbxVector4()
+#    sc = FbxVector4()
+#
+#    sign = transform.GetElements(t, q, sh, sc)
+#
+#    output = [
+#
+#    LabelString( getObjectName( node ) ) + ' : {',
+#    '	"position" : ' + Vector3String( t ) + ',',
+#    '	"quaternion" : ' + Vector4String( q ) + ',',
+#    '	"scale"	   : ' + Vector3String( sc ),
+#    '},'
+#
+#    ]
+#
+#    return generateMultiLineString( output, '\n\t\t', padding )
+#
+#def generate_pose_string(pose, padding):
+#    node_list = []
+#
+#    for n in range(pose.GetCount()):
+#        pose_node = generate_pose_node_string(pose, n, 1)
+#        node_list.append(pose_node)
+#
+#    pose_nodes = generateMultiLineString( node_list, '\n\t\t', padding )
+#    if len(pose_nodes) > 1:
+#        pose_nodes = pose_nodes[0:(len(pose_nodes)-1)]
+#      
+#    output = [ '\t{', pose_nodes, '},', ]
+#
+#    return generateMultiLineString( output, '\n\t\t', padding )
+#
+#def generate_pose_list(scene):
+#    pose_list = []
+#    
+#    for p in range(scene.GetPoseCount()):
+#        pose = scene.GetPose(p)
+#
+#        pose_string = generate_pose_string(pose, 0)
+#        pose_list.append(pose_string)
+#
+#    return pose_list
+
+def generate_pose_node_string(node, root, padding):
+    transform = node.EvaluateGlobalTransform()
+    transform = FbxMatrix(transform)
+
+    root_transform = root.EvaluateGlobalTransform()
+    root_transform = FbxMatrix(root_transform)
+    inv_root_transform = root_transform.Inverse()
+
+    # make this nodes transform relative to the pose root not the scene root
+    transform = inv_root_transform * transform  
 
     t = FbxVector4()
     q = FbxQuaternion()
@@ -1823,40 +1882,57 @@ def generate_pose_node_string(pose, node_index, padding):
 
     sign = transform.GetElements(t, q, sh, sc)
 
+    parent = node.GetParent()
+    if parent:
+        parent_transform = parent.EvaluateGlobalTransform()
+        parent_transform = FbxMatrix(parent_transform)
+        parent_transform = inv_root_transform * parent_transform  
+
+        p_t = FbxVector4()
+        p_q = FbxQuaternion()
+        p_sh = FbxVector4()
+        p_sc = FbxVector4()
+        p_sign = parent_transform.GetElements(p_t, p_q, p_sh, p_sc)
+
+        # The Three.js blender exporter removes bone rotations, we do the same here
+        t = t - p_t
+        q = FbxQuaternion()
+
     output = [
 
     LabelString( getObjectName( node ) ) + ' : {',
-    '	"position" : ' + Vector3String( t ) + ',',
-    '	"quaternion" : ' + Vector4String( q ) + ',',
-    '	"scale"	   : ' + Vector3String( sc ),
+    '	"position" : ' + Vector3String( t, False, True ) + ',',
+    '	"quaternion" : ' + Vector4String( q, False, True ) + ',',
+    '	"scale"	   : ' + Vector3String( sc, False, True ),
     '},'
 
     ]
 
     return generateMultiLineString( output, '\n\t\t', padding )
 
-def generate_pose_string(pose, padding):
-    node_list = []
+def generate_pose_string(root_bone, padding):
+    bone_list = []        
+    generate_bone_list_from_hierarchy(root_bone, bone_list)
 
-    for n in range(pose.GetCount()):
-        pose_node = generate_pose_node_string(pose, n, 1)
-        node_list.append(pose_node)
+    pose_node_strings = []
+    for node in bone_list:
+        pose_node_string = generate_pose_node_string(node, root_bone, 1)
+        pose_node_strings.append(pose_node_string)
 
-    pose_nodes = generateMultiLineString( node_list, '\n\t\t', padding )
-    if len(pose_nodes) > 1:
-        pose_nodes = pose_nodes[0:(len(pose_nodes)-1)]
+    pose_string = generateMultiLineString( pose_node_strings, '\n\t\t', padding )
       
-    output = [ '\t{', pose_nodes, '},', ]
+    output = [ '\t{', pose_string, '},' ]
 
     return generateMultiLineString( output, '\n\t\t', padding )
 
 def generate_pose_list(scene):
     pose_list = []
-    
-    for p in range(scene.GetPoseCount()):
-        pose = scene.GetPose(p)
 
-        pose_string = generate_pose_string(pose, 0)
+    skeleton_list = generate_list_of_skeleton_root_nodes(scene)
+    skeleton_root = None
+
+    for root_bone in skeleton_list:
+        pose_string = generate_pose_string(root_bone, 0)
         pose_list.append(pose_string)
 
     return pose_list
@@ -2105,7 +2181,7 @@ def generate_skeleton_list_from_hierarchy(node, skeleton_list):
     for i in range(node.GetChildCount()):
         generate_skeleton_list_from_hierarchy(node.GetChild(i), skeleton_list)
 
-def generate_skeleton_list(scene):
+def generate_list_of_skeleton_root_nodes(scene):
     skeleton_list = []
     node = scene.GetRootNode()
     if node:
@@ -2185,9 +2261,7 @@ def process_mesh_skin_weights(mesh_list):
 
     return weights
 
-def process_mesh_skeleton_hierarchy(scene, mesh_list):
-    #TODO: merge skeletons when len(mesh_list) > 0
-    mesh = mesh_list[0]
+def process_mesh_skeleton_hierarchy(scene, mesh):
     node = mesh.GetNode()
 
     # find a bone referenced by the skin deform for this mesh
@@ -2195,7 +2269,7 @@ def process_mesh_skeleton_hierarchy(scene, mesh_list):
     mesh_bone = cluster.GetLink()
     
     # find the root node of the skeleton that the bone belongs to
-    skeleton_list = generate_skeleton_list(scene)
+    skeleton_list = generate_list_of_skeleton_root_nodes(scene)
     skeleton_root = None
 
     for bone in skeleton_list:
