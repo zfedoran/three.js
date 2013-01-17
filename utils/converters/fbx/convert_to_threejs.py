@@ -198,12 +198,12 @@ def get_up_vector(scene):
     return FbxVector4(tmp[0], tmp[1], tmp[2], 1)
 
 def generate_bounding_box(vertices):
-    minx = 0
-    miny = 0
-    minz = 0
-    maxx = 0
-    maxy = 0
-    maxz = 0
+    minx = float('inf')
+    miny = float('inf')
+    minz = float('inf')
+    maxx = -float('inf')
+    maxy = -float('inf')
+    maxz = -float('inf')
 
     for vertex in vertices:
         if vertex[0] < minx:
@@ -1255,18 +1255,43 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
                 material_offset = material_offset_list[mesh_index]
 
             vertex_offset = vertex_offset_list[mesh_index]
+            
+            if poly_size > 4:
+                new_face_normals = []
+                new_face_colors = []
+                new_face_uv_layers = []
 
-            face = generate_mesh_face(mesh, 
-                      poly_index, 
-                      face_vertices,
-                      face_normals,
-                      face_colors,
-                      face_uv_layers,
-                      vertex_offset,
-                      material_offset)
+                for i in range(poly_size - 2):
+                    new_face_vertices = [face_vertices[0], face_vertices[i+1], face_vertices[i+2]]
 
-            faces.append(face)
+                    if len(face_normals):
+                        new_face_normals = [face_normals[0], face_normals[i+1], face_normals[i+2]]
+                    if len(face_colors):
+                        new_face_colors = [face_colors[0], face_colors[i+1], face_colors[i+2]]
+                    if len(face_uv_layers):
+                        new_face_uv_layers = []
+                        for layer in face_uv_layers:
+                            new_face_uv_layers.append([layer[0], layer[i+1], layer[i+2]])
 
+                    face = generate_mesh_face(mesh, 
+                        poly_index,
+                        new_face_vertices,
+                        new_face_normals,
+                        new_face_colors,
+                        new_face_uv_layers,
+                        vertex_offset,
+                        material_offset)
+                    faces.append(face)
+            else:
+                face = generate_mesh_face(mesh, 
+                          poly_index, 
+                          face_vertices,
+                          face_normals,
+                          face_colors,
+                          face_uv_layers,
+                          vertex_offset,
+                          material_offset)
+                faces.append(face)
 
     return faces
 
@@ -1814,87 +1839,33 @@ def generate_scene_objects_string(scene):
 # #####################################################
 # Parse - Poses
 # #####################################################
-
-#def generate_pose_node_string(pose, node_index, padding):
-#    node = pose.GetNode(node_index)
-#    transform = pose.GetMatrix(node_index)
-#
-#    t = FbxVector4()
-#    q = FbxQuaternion()
-#    sh = FbxVector4()
-#    sc = FbxVector4()
-#
-#    sign = transform.GetElements(t, q, sh, sc)
-#
-#    output = [
-#
-#    LabelString( getObjectName( node ) ) + ' : {',
-#    '	"position" : ' + Vector3String( t ) + ',',
-#    '	"quaternion" : ' + Vector4String( q ) + ',',
-#    '	"scale"	   : ' + Vector3String( sc ),
-#    '},'
-#
-#    ]
-#
-#    return generateMultiLineString( output, '\n\t\t', padding )
-#
-#def generate_pose_string(pose, padding):
-#    node_list = []
-#
-#    for n in range(pose.GetCount()):
-#        pose_node = generate_pose_node_string(pose, n, 1)
-#        node_list.append(pose_node)
-#
-#    pose_nodes = generateMultiLineString( node_list, '\n\t\t', padding )
-#    if len(pose_nodes) > 1:
-#        pose_nodes = pose_nodes[0:(len(pose_nodes)-1)]
-#      
-#    output = [ '\t{', pose_nodes, '},', ]
-#
-#    return generateMultiLineString( output, '\n\t\t', padding )
-#
-#def generate_pose_list(scene):
-#    pose_list = []
-#    
-#    for p in range(scene.GetPoseCount()):
-#        pose = scene.GetPose(p)
-#
-#        pose_string = generate_pose_string(pose, 0)
-#        pose_list.append(pose_string)
-#
-#    return pose_list
-
 def generate_pose_node_string(node, root, padding):
-    transform = node.EvaluateGlobalTransform()
-    transform = FbxMatrix(transform)
+    world_armature = FbxMatrix(root.EvaluateGlobalTransform())
+    inv_world_armature = world_armature.Inverse()
 
-    root_transform = root.EvaluateGlobalTransform()
-    root_transform = FbxMatrix(root_transform)
-    inv_root_transform = root_transform.Inverse()
-
-    # make this nodes transform relative to the pose root not the scene root
-    transform = inv_root_transform * transform  
+    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
+    armature_bone = inv_world_armature * world_bone
+    inv_armature_bone = armature_bone.Inverse()
 
     t = FbxVector4()
     q = FbxQuaternion()
     sh = FbxVector4()
     sc = FbxVector4()
 
-    sign = transform.GetElements(t, q, sh, sc)
+    sign = armature_bone.GetElements(t, q, sh, sc)
 
     parent = node.GetParent()
     if parent:
-        parent_transform = parent.EvaluateGlobalTransform()
-        parent_transform = FbxMatrix(parent_transform)
-        parent_transform = inv_root_transform * parent_transform  
+        world_parent = FbxMatrix(parent.EvaluateGlobalTransform())
+        armature_parent = inv_world_armature * world_parent
 
         p_t = FbxVector4()
         p_q = FbxQuaternion()
         p_sh = FbxVector4()
         p_sc = FbxVector4()
-        p_sign = parent_transform.GetElements(p_t, p_q, p_sh, p_sc)
 
-        # The Three.js blender exporter removes bone rotations, we do the same here
+        p_sign = armature_parent.GetElements(p_t, p_q, p_sh, p_sc)
+
         t = t - p_t
         q = FbxQuaternion()
 
@@ -1962,8 +1933,7 @@ def generate_keyframe_string(key_list, index, channel_size, padding):
     else:
         return str(round(key_list[index], 6))
 
-def generate_curve_node_string(node, curve_node, property_name, key_list):
-    channel_count = curve_node.GetChannelsCount()
+def generate_curve_node_string(node, curve_node, property_name, key_list, channel_count):
     keys = ",".join(generate_keyframe_string(key_list, i, channel_count, 5) for i in range(len(key_list)))
 
     output = [
@@ -1979,9 +1949,48 @@ def generate_curve_node_string(node, curve_node, property_name, key_list):
 
     return generateMultiLineString( output, '\n\t\t', 1 )
 
-def generate_position_curve_string(node, curve_node):
+def generate_position_curve_string(node, curve_node, skeleton):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
+
+    world_armature = FbxMatrix(skeleton.EvaluateGlobalTransform())
+    inv_world_armature = world_armature.Inverse()
+
+    local_bone = FbxMatrix(node.EvaluateLocalTransform())
+    inv_local_bone = local_bone.Inverse()
+
+    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
+    armature_bone = inv_world_armature * world_bone
+    inv_armature_bone = armature_bone.Inverse()
+
+    t = FbxVector4()
+    q = FbxQuaternion()
+    sh = FbxVector4()
+    sc = FbxVector4()
+
+    sign = armature_bone.GetElements(t, q, sh, sc)
+
+    parent = node.GetParent()
+
+    world_parent = None
+    armature_parent = None
+    inv_armature_parent = None
+
+    parentHeadTailDiff = None
+
+    if parent:
+        world_parent = FbxMatrix(parent.EvaluateGlobalTransform())
+        armature_parent = inv_world_armature * world_parent
+        inv_armature_parent = armature_parent.Inverse()
+
+        p_t = FbxVector4()
+        p_q = FbxQuaternion()
+        p_sh = FbxVector4()
+        p_sc = FbxVector4()
+
+        p_sign = armature_parent.GetElements(p_t, p_q, p_sh, p_sc)
+
+        parentHeadTailDiff = t - p_t
 
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
@@ -1995,13 +2004,25 @@ def generate_position_curve_string(node, curve_node):
             key_value = curve.KeyGetValue(key_index)
 
             position.append(key_value)
-        keyframes.extend(position)
 
-    return generate_curve_node_string(node, curve_node, 'position', keyframes)
+        position = FbxVector4(position[0], position[1], position[2], 1)
 
-def generate_rotation_curve_string(node, curve_node):
+        keyframes.append(position[0])
+        keyframes.append(position[1])
+        keyframes.append(position[2])
+
+    return generate_curve_node_string(node, curve_node, 'position', keyframes, 3)
+
+def generate_rotation_curve_string(node, curve_node, skeleton):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
+
+    world_armature = FbxMatrix(skeleton.EvaluateGlobalTransform())
+    inv_world_armature = world_armature.Inverse()
+
+    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
+    armature_bone = inv_world_armature * world_bone
+    inv_armature_bone = armature_bone.Inverse()
 
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
@@ -2013,13 +2034,24 @@ def generate_rotation_curve_string(node, curve_node):
 
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
+            key_value *= math.pi / 180
 
             rotation.append(key_value)
-        keyframes.extend(rotation)
 
-    return generate_curve_node_string(node, curve_node, 'rotation', keyframes)
+        rotation = FbxVector4(rotation[0], rotation[1], rotation[2], 1)
+        #rotation = inv_armature_bone.MultNormalize(rotation)
 
-def generate_scale_curve_string(node, curve_node):
+        quaternion = FbxQuaternion()
+        quaternion.ComposeSphericalXYZ(rotation)
+
+        keyframes.append(quaternion[0])
+        keyframes.append(quaternion[1])
+        keyframes.append(quaternion[2])
+        keyframes.append(quaternion[3])
+
+    return generate_curve_node_string(node, curve_node, 'rotation', keyframes, 4)
+
+def generate_scale_curve_string(node, curve_node, skeleton):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
 
@@ -2037,57 +2069,83 @@ def generate_scale_curve_string(node, curve_node):
             scale.append(key_value)
         keyframes.extend(scale)
 
-    return generate_curve_node_string(node, curve_node, 'scale', keyframes)
+    return generate_curve_node_string(node, curve_node, 'scale', keyframes, 3)
 
 def generate_animation_curve_list(scene):
+    skeleton_root_nodes = generate_list_of_skeleton_root_nodes(scene)
+
     curve_list = []
 
     unrollFilter = FbxAnimCurveFilterUnroll()
     reduceFilter = FbxAnimCurveFilterKeyReducer()
     syncFilter = FbxAnimCurveFilterKeySync()
 
+    '''
+    # Removes too many keys
+    reduceFilter.SetKeySync(True)
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
-    for a in range(animation_count):
-        animation = scene.GetSrcObject(FbxAnimStack.ClassId, a)
-        layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
+    for i in range(animation_count):
+        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+        reduceFilter.Apply(stack)
+    '''
+      
+    layer_count = scene.GetSrcObjectCount(FbxAnimLayer.ClassId)
 
-        for l in range(layer_count):
-            layer = scene.GetSrcObject(FbxAnimLayer.ClassId, l)
+    for l in range(layer_count):
+        layer = scene.GetSrcObject(FbxAnimLayer.ClassId, l)
 
-            for n in range(scene.GetNodeCount()):
-                node = scene.GetNode(n)
+        for n in range(scene.GetNodeCount()):
+            node = scene.GetNode(n)
 
-                curve_node = node.LclTranslation.GetCurveNode(layer, True)
-                reduceFilter.Apply(curve_node)
-                syncFilter.Apply(curve_node)
-                if curve_node.IsAnimated():
-                    curve_string = generate_position_curve_string(node, curve_node)
-                    curve_list.append(curve_string)
+            skeleton = None
+            for root_bone in skeleton_root_nodes:
+                if node == root_bone or root_bone.FindChild(node.GetName(), True, True):
+                    skeleton = root_bone
 
-                curve_node = node.LclRotation.GetCurveNode(layer, True)
-                unrollFilter.Apply(curve_node)
-                reduceFilter.Apply(curve_node)
-                syncFilter.Apply(curve_node)
-                if curve_node.IsAnimated():
-                    curve_string = generate_rotation_curve_string(node, curve_node)
-                    curve_list.append(curve_string)
+            if not skeleton:
+                continue
+                    
+            curve_node = node.LclTranslation.GetCurveNode(layer, True)
+            #reduceFilter.Apply(curve_node)
+            #syncFilter.Apply(curve_node)
+            if curve_node.IsAnimated():
+                curve_string = generate_position_curve_string(node, curve_node, skeleton)
+                curve_list.append(curve_string)
 
-                curve_node = node.LclScaling.GetCurveNode(layer, True)
-                reduceFilter.Apply(curve_node)
-                syncFilter.Apply(curve_node)
-                if curve_node.IsAnimated():
-                    curve_string = generate_scale_curve_string(node, curve_node)
-                    curve_list.append(curve_string)
+            curve_node = node.LclRotation.GetCurveNode(layer, True)
+            #unrollFilter.Apply(curve_node)
+            #reduceFilter.Apply(curve_node)
+            #syncFilter.Apply(curve_node)
+            if curve_node.IsAnimated():
+                curve_string = generate_rotation_curve_string(node, curve_node, skeleton)
+                curve_list.append(curve_string)
+
+            curve_node = node.LclScaling.GetCurveNode(layer, True)
+            #reduceFilter.Apply(curve_node)
+            #syncFilter.Apply(curve_node)
+            if curve_node.IsAnimated():
+                curve_string = generate_scale_curve_string(node, curve_node, skeleton)
+                curve_list.append(curve_string)
 
     return curve_list
 
 def generate_animation_layer_string(layer, scene):
+    skeleton_root_nodes = generate_list_of_skeleton_root_nodes(scene)
+
     blend_mode_types = ['additive', 'override']
     blend_mode = blend_mode_types[layer.BlendMode.Get()]
 
     curve_list = []
     for n in range(scene.GetNodeCount()):
         node = scene.GetNode(n)
+
+        skeleton = None
+        for root_bone in skeleton_root_nodes:
+            if node == root_bone or root_bone.FindChild(node.GetName(), True, True):
+                skeleton = root_bone
+
+        if not skeleton:
+            continue
 
         curve_node = node.LclTranslation.GetCurveNode(layer, True)
         if curve_node.IsAnimated():
@@ -2116,14 +2174,11 @@ def generate_animation_layer_string(layer, scene):
 
 def generate_animation_layer_list(scene):
     layer_list = []
-    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
-    for i in range(animation_count):
-        animation = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-        layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
-        for j in range(layer_count):
-            layer = scene.GetSrcObject(FbxAnimLayer.ClassId, j)
-            layer_string = generate_animation_layer_string(layer, scene)
-            layer_list.append(layer_string)
+    layer_count = scene.GetSrcObjectCount(FbxAnimLayer.ClassId)
+    for j in range(layer_count):
+        layer = scene.GetSrcObject(FbxAnimLayer.ClassId, j)
+        layer_string = generate_animation_layer_string(layer, scene)
+        layer_list.append(layer_string)
 
     return layer_list
 
@@ -2135,7 +2190,7 @@ def generate_animation_string(animation, scene):
     layer_list = []
     layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
     for i in range(layer_count):
-        layer = scene.GetSrcObject(FbxAnimLayer.ClassId, i)
+        layer = animation.GetSrcObject(FbxAnimLayer.ClassId, i)
         layer_string = getAnimationLayerName(layer, True)
         layer_list.append(layer_string)
 
