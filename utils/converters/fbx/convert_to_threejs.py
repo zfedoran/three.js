@@ -189,14 +189,6 @@ def generateMultiLineString(lines, separator, padding):
         cleanLines.append(line)
     return separator.join(cleanLines)
 
-def get_up_vector(scene):
-    global_settings = scene.GetGlobalSettings()
-    axis_system = global_settings.GetAxisSystem()
-    up_vector = axis_system.GetUpVector()
-    tmp = [0,0,0]
-    tmp[up_vector[0] - 1] = up_vector[1] * 1
-    return FbxVector4(tmp[0], tmp[1], tmp[2], 1)
-
 def generate_bounding_box(vertices):
     minx = float('inf')
     miny = float('inf')
@@ -2566,7 +2558,11 @@ if __name__ == "__main__":
         if option_triangulate:
             print("\nForcing geometry to triangles")
             triangulate_scene(scene)
-
+            
+        if os.path.splitext(args[0])[1].lower() == '.dae':
+            axis_system = FbxAxisSystem.MayaZUp
+            axis_system.ConvertScene(scene)
+            
         if option_geometry:
             output_content = extract_geometry(scene, os.path.basename(args[0]))
         else:
