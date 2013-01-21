@@ -2559,7 +2559,7 @@ if __name__ == "__main__":
             triangulate_scene(scene)
             
         if os.path.splitext(args[0])[1].lower() == '.dae':
-            axis_system = FbxAxisSystem.MayaZUp
+            axis_system = FbxAxisSystem.MayaYUp
             axis_system.ConvertScene(scene)
             
         if option_geometry:
