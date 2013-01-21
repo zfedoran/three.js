@@ -2542,7 +2542,6 @@ if __name__ == "__main__":
     # Prepare the FBX SDK.
     sdk_manager, scene = InitializeSdkObjects()
     converter = FbxGeometryConverter(sdk_manager)
-    global_up_vector = get_up_vector(scene)
 
     # The converter takes an FBX file as an argument.
     if len(args) > 1:
