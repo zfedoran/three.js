@@ -286,9 +286,7 @@ def generate_material_string(material):
     output = []
 
     if implementation:
-        # This material is a hardware shader, skip it
         print("Shader materials are not supported")
-        return ''
         
     elif material.GetClassId().Is(FbxSurfaceLambert.ClassId):
 
@@ -348,7 +346,28 @@ def generate_material_string(material):
 
     else:
       print("Unknown type of Material")
-      return ''
+
+    if not output:
+        ambient   = str(getHex((0,0,0)))
+        diffuse   = str(getHex((0.5,0.5,0.5)))
+        emissive  = str(getHex((0,0,0)))
+        opacity   = str(1)
+        transparent = BoolString(False)
+        reflectivity = "1"
+
+        output = [
+
+        '\t' + LabelString( getMaterialName( material ) ) + ': {',
+        '	"type"    : "MeshLambertMaterial",',
+        '	"parameters"  : {',
+        '		"color"  : ' 	  + diffuse + ',',
+        '		"ambient"  : ' 	+ ambient + ',',
+        '		"emissive"  : ' + emissive + ',',
+        '		"reflectivity"  : ' + reflectivity + ',',
+        '		"transparent" : '   + transparent + ',',
+        '		"opacity" : ' 	    + opacity + ',',
+
+        ]
 
     if option_textures:
         texture_list = []
@@ -2558,9 +2577,8 @@ if __name__ == "__main__":
             print("\nForcing geometry to triangles")
             triangulate_scene(scene)
             
-        if os.path.splitext(args[0])[1].lower() == '.dae':
-            axis_system = FbxAxisSystem.MayaYUp
-            axis_system.ConvertScene(scene)
+        axis_system = FbxAxisSystem.MayaYUp
+        axis_system.ConvertScene(scene)
             
         if option_geometry:
             output_content = extract_geometry(scene, os.path.basename(args[0]))
