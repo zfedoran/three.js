@@ -63,7 +63,7 @@
 			var windowHalfY = window.innerHeight / 2;
 
 
-			var floor, dz = 0, dstep = -10, playback = false;
+			var playback = false;
 
 			var clock = new THREE.Clock();
       var nemo, animation;
@@ -119,6 +119,7 @@
           stats.domElement.style.top = '0px';
           container.appendChild( stats.domElement );
 
+
           loop();
         });
 
@@ -169,6 +170,7 @@
         boxes_scene.add( light );
         
         var geometry = new THREE.CubeGeometry( 0.1, 0.1, 0.1 );
+        var geometry = new THREE.CylinderGeometry(0, 0.1, 0.4, 4, 4, false)
 
         for (var i = 0; i<nemo.bones.length; i++) {
 					var object = new THREE.Mesh( geometry, new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } ) );
@@ -189,7 +191,6 @@
 
 					animation.play();
 
-				dz = dstep;
 				playback = true;
 
 			}
@@ -201,14 +202,11 @@
 
 			}
 
-      var total = 0;
 			function loop() {
 
 				requestAnimationFrame( loop, renderer.domElement );
 
 				var delta = clock.getDelta();
-        total += delta * 0.1;
-
 
 				THREE.AnimationHandler.update( delta );
 
@@ -221,7 +219,9 @@
           var decomposed = animation.hierarchy[i].matrixWorld.decompose();
 
           object.position = decomposed[0];
-          object.rotation = decomposed[1];
+
+          object.quaternion = decomposed[1];
+          object.useQuaternion = true;
 				}
 
 				camera.lookAt( scene.position );

@@ -1727,15 +1727,17 @@ def generate_mesh_object_string(node, padding):
         #If this mesh has more than one material, use a proxy material
         material_name = getMaterialName( node, True) if material_count > 1 else material_names[0] 
 
+    skin_count = mesh.GetDeformerCount(FbxDeformer.eSkin)
+
     output = [
 
     '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
     '	"geometry" : ' + LabelString( getGeometryName( node, True ) ) + ',',
     '	"material" : ' + LabelString( material_name ) + ',',
     '	"position" : ' + Vector3String( position ) + ',',
-    '	"rotation" : ' + Vector3String( rotation ) + ',',
     '	"quaternion" : ' + Vector4String( quaternion ) + ',',
     '	"scale"	   : ' + Vector3String( scale ) + ',',
+    '	"skin"	 : ' + BoolString( skin_count > 0 ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
 
     ]
@@ -1767,7 +1769,6 @@ def generate_object_string(node, padding):
     '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
     '	"fbx_type" : ' + LabelString( node_type ) + ',',
     '	"position" : ' + Vector3String( position ) + ',',
-    '	"rotation" : ' + Vector3String( rotation ) + ',',
     '	"quaternion" : ' + Vector4String( quaternion ) + ',',
     '	"scale"	   : ' + Vector3String( scale ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
@@ -1851,34 +1852,17 @@ def generate_scene_objects_string(scene):
 # Parse - Poses
 # #####################################################
 def generate_pose_node_string(node, root, padding):
-    world_armature = FbxMatrix(root.EvaluateGlobalTransform())
-    inv_world_armature = world_armature.Inverse()
+    local_bone = FbxMatrix(node.EvaluateLocalTransform())
 
-    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
-    armature_bone = inv_world_armature * world_bone
-    inv_armature_bone = armature_bone.Inverse()
+    if node == root:
+      local_bone = FbxMatrix()
 
     t = FbxVector4()
     q = FbxQuaternion()
     sh = FbxVector4()
     sc = FbxVector4()
 
-    sign = armature_bone.GetElements(t, q, sh, sc)
-
-    parent = node.GetParent()
-    if parent:
-        world_parent = FbxMatrix(parent.EvaluateGlobalTransform())
-        armature_parent = inv_world_armature * world_parent
-
-        p_t = FbxVector4()
-        p_q = FbxQuaternion()
-        p_sh = FbxVector4()
-        p_sc = FbxVector4()
-
-        p_sign = armature_parent.GetElements(p_t, p_q, p_sh, p_sc)
-
-        t = t - p_t
-        q = FbxQuaternion()
+    local_bone.GetElements(t, q, sh, sc)
 
     output = [
 
@@ -1886,7 +1870,7 @@ def generate_pose_node_string(node, root, padding):
     '	"position" : ' + Vector3String( t, False, True ) + ',',
     '	"quaternion" : ' + Vector4String( q, False, True ) + ',',
     '	"scale"	   : ' + Vector3String( sc, False, True ),
-    '},'
+    '}'
 
     ]
 
@@ -1901,7 +1885,7 @@ def generate_pose_string(root_bone, padding):
         pose_node_string = generate_pose_node_string(node, root_bone, 1)
         pose_node_strings.append(pose_node_string)
 
-    pose_string = generateMultiLineString( pose_node_strings, '\n\t\t', padding )
+    pose_string = generateMultiLineString( pose_node_strings, ',\n\t\t', padding )
       
     output = [ '\t{', pose_string, '},' ]
 
@@ -1960,125 +1944,133 @@ def generate_curve_node_string(node, curve_node, property_name, key_list, channe
 
     return generateMultiLineString( output, '\n\t\t', 1 )
 
-def generate_position_curve_string(node, curve_node, skeleton):
+def generate_position_curve_string(node, curve_node, root):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
 
-    world_armature = FbxMatrix(skeleton.EvaluateGlobalTransform())
-    inv_world_armature = world_armature.Inverse()
+    local = node.EvaluateLocalTranslation()
+    offset = FbxVector4()
+    if node == root:
+        offset = local
 
-    local_bone = FbxMatrix(node.EvaluateLocalTransform())
-    inv_local_bone = local_bone.Inverse()
 
-    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
-    armature_bone = inv_world_armature * world_bone
-    inv_armature_bone = armature_bone.Inverse()
+        mesh_count = scene.GetSrcObjectCount(FbxSkin.ClassId)
+        mesh_node = scene.GetSrcObject(FbxSkin.ClassId, 0).GetGeometry().GetNode(0)
+        #cluster = mesh.GetDeformer(0, FbxDeformer.eSkin).GetCluster(0)
 
-    t = FbxVector4()
-    q = FbxQuaternion()
-    sh = FbxVector4()
-    sc = FbxVector4()
-
-    sign = armature_bone.GetElements(t, q, sh, sc)
-
-    parent = node.GetParent()
-
-    world_parent = None
-    armature_parent = None
-    inv_armature_parent = None
-
-    parentHeadTailDiff = None
-
-    if parent:
-        world_parent = FbxMatrix(parent.EvaluateGlobalTransform())
-        armature_parent = inv_world_armature * world_parent
-        inv_armature_parent = armature_parent.Inverse()
-
-        p_t = FbxVector4()
-        p_q = FbxQuaternion()
-        p_sh = FbxVector4()
-        p_sc = FbxVector4()
-
-        p_sign = armature_parent.GetElements(p_t, p_q, p_sh, p_sc)
-
-        parentHeadTailDiff = t - p_t
-
+    
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
-        position = []
+        position = {}
         for i in range(curve_node.GetChannelsCount()):
             curve = curve_node.GetCurve(i)
             if not curve:
                 continue
 
+            channel_name = curve_node.GetChannelName(i)
+
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
 
-            position.append(key_value)
+            position[str(channel_name)] = key_value
 
-        position = FbxVector4(position[0], position[1], position[2], 1)
+        if not 'X' in position:
+            position['X'] = local[0]
+        if not 'Y' in position:
+            position['Y'] = local[1]
+        if not 'Z' in position:
+            position['Z'] = local[2]
 
-        keyframes.append(position[0])
-        keyframes.append(position[1])
-        keyframes.append(position[2])
+        position = FbxVector4(position['X'], position['Y'], position['Z'], 1)
+        position = position - offset
+
+        keyframes.append(round(position[0],6))
+        keyframes.append(round(position[1],6))
+        keyframes.append(round(position[2],6))
 
     return generate_curve_node_string(node, curve_node, 'position', keyframes, 3)
 
-def generate_rotation_curve_string(node, curve_node, skeleton):
+def generate_rotation_curve_string(node, curve_node, root):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
 
-    world_armature = FbxMatrix(skeleton.EvaluateGlobalTransform())
-    inv_world_armature = world_armature.Inverse()
-
-    world_bone = FbxMatrix(node.EvaluateGlobalTransform())
-    armature_bone = inv_world_armature * world_bone
-    inv_armature_bone = armature_bone.Inverse()
+    local = node.EvaluateLocalRotation()
+    offset = FbxVector4()
+    if node == root:
+        offset = local
 
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
-        rotation = []
+        rotation = {}
         for i in range(curve_node.GetChannelsCount()):
             curve = curve_node.GetCurve(i)
             if not curve:
                 continue
 
+            channel_name = curve_node.GetChannelName(i)
+
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
-            key_value *= math.pi / 180
 
-            rotation.append(key_value)
+            rotation[str(channel_name)] = key_value
 
-        rotation = FbxVector4(rotation[0], rotation[1], rotation[2], 1)
-        #rotation = inv_armature_bone.MultNormalize(rotation)
+        if not 'X' in rotation:
+            rotation['X'] = local[0]
+        if not 'Y' in rotation:
+            rotation['Y'] = local[1]
+        if not 'Z' in rotation:
+            rotation['Z'] = local[2]
+
+        rotation = FbxVector4(rotation['X'], rotation['Y'], rotation['Z'], 1)
+        rotation = rotation - offset
 
         quaternion = FbxQuaternion()
         quaternion.ComposeSphericalXYZ(rotation)
 
-        keyframes.append(quaternion[0])
-        keyframes.append(quaternion[1])
-        keyframes.append(quaternion[2])
-        keyframes.append(quaternion[3])
+        keyframes.append(round(quaternion[0],6))
+        keyframes.append(round(quaternion[1],6))
+        keyframes.append(round(quaternion[2],6))
+        keyframes.append(round(quaternion[3],6))
 
     return generate_curve_node_string(node, curve_node, 'rotation', keyframes, 4)
 
-def generate_scale_curve_string(node, curve_node, skeleton):
+def generate_scale_curve_string(node, curve_node, root):
     time_list = generate_animation_key_time_list(curve_node)
     keyframes = []
 
+    local = node.EvaluateLocalScaling()
+    offset = FbxVector4()
+    if node == root:
+        offset = local
+
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
-        scale = []
+        scale = {}
         for i in range(curve_node.GetChannelsCount()):
             curve = curve_node.GetCurve(i)
             if not curve:
                 continue
 
+            channel_name = curve_node.GetChannelName(i)
+
             key_index = curve.KeyFind(time)[1]
             key_value = curve.KeyGetValue(key_index)
 
-            scale.append(key_value)
-        keyframes.extend(scale)
+            scale[str(channel_name)] = key_value
+
+        if not 'X' in scale:
+            scale['X'] = local[0]
+        if not 'Y' in scale:
+            scale['Y'] = local[1]
+        if not 'Z' in scale:
+            scale['Z'] = local[2]
+
+        scale = FbxVector4(scale['X'], scale['Y'], scale['Z'], 1)
+        scale = scale - offset
+
+        keyframes.append(round(scale[0],6))
+        keyframes.append(round(scale[1],6))
+        keyframes.append(round(scale[2],6))
 
     return generate_curve_node_string(node, curve_node, 'scale', keyframes, 3)
 
@@ -2099,6 +2091,12 @@ def generate_animation_curve_list(scene):
         stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
         reduceFilter.Apply(stack)
     '''
+
+    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
+    for i in range(animation_count):
+        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+        syncFilter.Apply(stack)
+        unrollFilter.Apply(stack)
       
     layer_count = scene.GetSrcObjectCount(FbxAnimLayer.ClassId)
 
@@ -2117,23 +2115,16 @@ def generate_animation_curve_list(scene):
                 continue
                     
             curve_node = node.LclTranslation.GetCurveNode(layer, True)
-            #reduceFilter.Apply(curve_node)
-            #syncFilter.Apply(curve_node)
             if curve_node.IsAnimated():
                 curve_string = generate_position_curve_string(node, curve_node, skeleton)
                 curve_list.append(curve_string)
 
             curve_node = node.LclRotation.GetCurveNode(layer, True)
-            #unrollFilter.Apply(curve_node)
-            #reduceFilter.Apply(curve_node)
-            #syncFilter.Apply(curve_node)
             if curve_node.IsAnimated():
                 curve_string = generate_rotation_curve_string(node, curve_node, skeleton)
                 curve_list.append(curve_string)
 
             curve_node = node.LclScaling.GetCurveNode(layer, True)
-            #reduceFilter.Apply(curve_node)
-            #syncFilter.Apply(curve_node)
             if curve_node.IsAnimated():
                 curve_string = generate_scale_curve_string(node, curve_node, skeleton)
                 curve_list.append(curve_string)

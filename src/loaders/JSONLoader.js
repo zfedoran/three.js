@@ -119,6 +119,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
         var takes = data.animations.takes;
         var layers = data.animations.layers;
         var curves = data.animations.curves;
+        var pose = data.poses[0];
         var skinning = json.skinning;
 
         var ntakes = Object.keys(takes).length;
@@ -147,7 +148,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                 parent_index = skinning.bones.indexOf(bone_node._parent._name);
               }
 
-              //TODO: bone_node should be set using the "poses" object
+              //bone_node = pose[bone_name];
               var bone = {
                 "parent" : parent_index,
                 "name" : bone_name,
@@ -166,41 +167,15 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                 var curve = curves[curve_name];
 
                 if ( curve.object == bone_name ) {
-                  for ( var k = 0; k < curve.keys.length; k+=3 ) {
+                  for ( var k = 0; k < curve.keys.length; k+=curve.channels+1 ) {
                     var time = curve.keys[k+0];
-                    var value = curve.keys[k+1];
-                    addKey( time, value, curve.property, curve.channel, keys);
+                    var value = [];
+                    for ( var c = 0; c < curve.channels; c++ ) {
+                      value.push(curve.keys[k+c+1]);
+                    }
+                    addKey( time, value, curve.property, keys);
                   }
                 }
-              }
-
-              if (Object.keys(keys).length == 0) {
-
-                addKey(0, 0, "rotation", "x", keys);
-                addKey(0, 0, "rotation", "y", keys);
-                addKey(0, 0, "rotation", "z", keys);
-
-                addKey(0, 0, "position", "x", keys);
-                addKey(0, 0, "position", "y", keys);
-                addKey(0, 0, "position", "z", keys);
-
-                addKey(0, 0, "scale", "x", keys);
-                addKey(0, 0, "scale", "y", keys);
-                addKey(0, 0, "scale", "z", keys);
-
-                var time = take.stop - take.start;
-                addKey(time, 0, "rotation", "x", keys);
-                addKey(time, 0, "rotation", "y", keys);
-                addKey(time, 0, "rotation", "z", keys);
-
-                addKey(time, 0, "position", "x", keys);
-                addKey(time, 0, "position", "y", keys);
-                addKey(time, 0, "position", "z", keys);
-                
-                addKey(time, 0, "scale", "x", keys);
-                addKey(time, 0, "scale", "y", keys);
-                addKey(time, 0, "scale", "z", keys);
-
               }
 
               var keyframes = [];
@@ -212,41 +187,30 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
                 if ( key.position ) {
                   pos = [];
-                  pos.push(key.position.x || bone_node.position[0]);
-                  pos.push(key.position.y || bone_node.position[1]);
-                  pos.push(key.position.z || bone_node.position[2]);
-                }
-
-                if ( key.quaternion ) {
-                  rotq = [];
-                  rotq.push(key.quaternion.x || bone_node.quaternion[0]);
-                  rotq.push(key.quaternion.y || bone_node.quaternion[1]);
-                  rotq.push(key.quaternion.z || bone_node.quaternion[2]);
-                  rotq.push(key.quaternion.w || bone_node.quaternion[3]);
+                  pos.push(key.position[0] || bone_node.position[0]);
+                  pos.push(key.position[1] || bone_node.position[1]);
+                  pos.push(key.position[2] || bone_node.position[2]);
                 }
 
                 if ( key.rotation ) {
                   rot = [];
-                  rot.push(key.rotation.x || bone_node.rotation[0]);
-                  rot.push(key.rotation.y || bone_node.rotation[1]);
-                  rot.push(key.rotation.z || bone_node.rotation[2]);
-                  var quat = new THREE.Quaternion();
-                  quat.setFromEuler({x:rot[0],y:rot[1],z:rot[2]});
-                  rot = quat;
+                  rot.push(key.rotation[0] || bone_node.quaternion[0]);
+                  rot.push(key.rotation[1] || bone_node.quaternion[1]);
+                  rot.push(key.rotation[2] || bone_node.quaternion[2]);
+                  rot.push(key.rotation[3] || bone_node.quaternion[3]);
                 }
 
                 if ( key.scale ) {
                   scl = [];
-                  scl.push(key.scale.x || bone_node.scale[0]);
-                  scl.push(key.scale.y || bone_node.scale[1]);
-                  scl.push(key.scale.z || bone_node.scale[2]);
+                  scl.push(key.scale[0] || bone_node.scale[0]);
+                  scl.push(key.scale[1] || bone_node.scale[1]);
+                  scl.push(key.scale[2] || bone_node.scale[2]);
                 }
 
                 var keyframe = { time: time };
 
                 if ( pos ) { keyframe.pos = pos; }
                 if ( rot ) { keyframe.rot = rot; }
-                if ( rotq ) { keyframe.rotq = rotq; }
                 if ( scl ) { keyframe.scl = scl; }
 
                 keyframes.push(keyframe);
@@ -273,14 +237,11 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
       }
     }
 
-    function addKey( time, value, property, channel, dictionary ) { 
+    function addKey( time, value, property, dictionary ) { 
       if ( !(time in dictionary) ) { 
         dictionary[time] = {}; 
       }
-      if ( !(property in dictionary[time]) ) {
-        dictionary[time][property] = {};
-      }
-      dictionary[time][property][channel] = value;
+      dictionary[time][property] = value;
     }
 
     function findRootBone( name ) {
