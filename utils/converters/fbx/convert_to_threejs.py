@@ -81,25 +81,25 @@ def getObjectName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Object_%s_" % o.GetUniqueID()
-    return prefix + o.GetName().encode('ascii','replace')
+    return prefix + o.GetName()
       
 def getGeometryName(g, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Geometry_%s_" % g.GetUniqueID()
-    return prefix + g.GetName().encode('ascii','replace')
+    return prefix + g.GetName()
 
 def getEmbedName(e, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Embed_%s_" % e.GetUniqueID()
-    return prefix + e.GetName().encode('ascii','replace')
+    return prefix + e.GetName()
 
 def getMaterialName(m, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Material_%s_" % m.GetUniqueID()
-    return prefix + m.GetName().encode('ascii','replace')
+    return prefix + m.GetName()
 
 def getTextureName(t, force_prefix = False):
     if type(t) is FbxFileTexture:
@@ -114,13 +114,13 @@ def getTextureName(t, force_prefix = False):
         prefix = "Texture_%s_" % t.GetUniqueID()
         if len(texture_id) == 0:
             prefix = prefix[0:len(prefix)-1]
-    return prefix + texture_id.encode('ascii','replace')
+    return prefix + texture_id
 
 def getAnimationName(a, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Animation_%s_" % a.GetUniqueID()
-    return prefix + a.GetName().encode('ascii','replace')
+    return prefix + a.GetName()
     
 def getAnimationLayerName(l, force_prefix = False):
     prefix = ""
@@ -138,13 +138,13 @@ def getPoseName(p, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Pose_%s_" % p.GetUniqueID()
-    return prefix + p.GetName().encode('ascii','replace')
+    return prefix + p.GetName()
 
 def getFogName(f, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Fog_%s_" % f.GetUniqueID()
-    return prefix + f.GetName().encode('ascii','replace')
+    return prefix + f.GetName()
 
 def getObjectVisible(n):
     return BoolString(True)
@@ -2503,7 +2503,7 @@ def extract_geometry(scene, filename):
 # #####################################################
 def write_file(fname, content):
     out = open(fname, "w")
-    out.write(content)
+    out.write(content.encode('utf8', 'replace'))
     out.close()
 
 # #####################################################
