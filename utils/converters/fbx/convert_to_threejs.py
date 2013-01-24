@@ -99,10 +99,24 @@ def BoolString(value):
 def getObjectName(o, force_prefix = False): 
     if not o:
         return ""  
+
+    object_name = o.GetName() 
+    if not force_prefix:
+        root = o.GetScene()
+        object_count = root.GetSrcObjectCount(FbxNode.ClassId)
+        for i in range(object_count):
+            other = root.GetSrcObject(FbxNode.ClassId, i)
+            if other == o:
+                continue
+            other_name = other.GetName() 
+            if other_name == object_name:
+                force_prefix = True
+
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Object_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
+
+    return prefix + object_name
       
 def getGeometryName(g, force_prefix = False):
     prefix = ""
@@ -577,30 +591,42 @@ def extract_fbx_vertex_positions(mesh):
         positions.append(convert_fbx_vec3(control_points[i]))
 
     node = mesh.GetNode()
-    if node and option_geometry:
-        # FbxMeshes are local to their node, we need the vertices in global space
-        # when scene nodes are not exported
-        transform = node.EvaluateGlobalTransform()
-        transform = FbxMatrix(transform)
-
+    if node:
         t = node.GeometricTranslation.Get()
         t = FbxVector4(t[0], t[1], t[2], 1)
         r = node.GeometricRotation.Get()
         r = FbxVector4(r[0], r[1], r[2], 1)
         s = node.GeometricScaling.Get()
         s = FbxVector4(s[0], s[1], s[2], 1)
+        
+        hasGeometricTransform = False
+        if t[0] != 0 or t[1] != 0 or t[2] != 0 or \
+           r[0] != 0 or r[1] != 0 or r[2] != 0 or \
+           s[0] != 1 or s[1] != 1 or s[2] != 1:
+            hasGeometricTransform = True
+        
+        if hasGeometricTransform:
+            geo_transform = FbxMatrix(t,r,s)
+        else:
+            geo_transform = FbxMatrix()
 
-        a = FbxAMatrix()
-        a.SetTRS(t,r,s)
-        a = FbxMatrix(a)
+        transform = None
 
-        transform = transform * a
+        if option_geometry:
+            # FbxMeshes are local to their node, we need the vertices in global space
+            # when scene nodes are not exported
+            transform = node.EvaluateGlobalTransform()
+            transform = FbxMatrix(transform) * geo_transform
 
-        for i in range(len(positions)):
-            v = positions[i]
-            position = FbxVector4(v[0], v[1], v[2])
-            position = transform.MultNormalize(position)
-            positions[i] = convert_fbx_vec3(position)
+        elif hasGeometricTransform:
+            transform = geo_transform
+            
+        if transform:
+            for i in range(len(positions)):
+                v = positions[i]
+                position = FbxVector4(v[0], v[1], v[2])
+                position = transform.MultNormalize(position)
+                positions[i] = convert_fbx_vec3(position)
 
     return positions
 
@@ -638,31 +664,42 @@ def extract_fbx_vertex_normals(mesh):
             normal_values.append(normal)
 
         node = mesh.GetNode()
-        if node and option_geometry:
-            # FbxMeshes are local to their node, we need the normals in global space
-            # when scene nodes are not exported
-            transform = node.EvaluateGlobalTransform()
-            transform.SetT(FbxVector4(0,0,0,0))
-            transform = FbxMatrix(transform)
-
+        if node:
             t = node.GeometricTranslation.Get()
             t = FbxVector4(t[0], t[1], t[2], 1)
             r = node.GeometricRotation.Get()
             r = FbxVector4(r[0], r[1], r[2], 1)
             s = node.GeometricScaling.Get()
             s = FbxVector4(s[0], s[1], s[2], 1)
+            
+            hasGeometricTransform = False
+            if t[0] != 0 or t[1] != 0 or t[2] != 0 or \
+               r[0] != 0 or r[1] != 0 or r[2] != 0 or \
+               s[0] != 1 or s[1] != 1 or s[2] != 1:
+                hasGeometricTransform = True
+            
+            if hasGeometricTransform:
+                geo_transform = FbxMatrix(t,r,s)
+            else:
+                geo_transform = FbxMatrix()
 
-            a = FbxAMatrix()
-            a.SetTRS(t,r,s)
-            a = FbxMatrix(a)
+            transform = None
 
-            transform = transform * a
+            if option_geometry:
+                # FbxMeshes are local to their node, we need the vertices in global space
+                # when scene nodes are not exported
+                transform = node.EvaluateGlobalTransform()
+                transform = FbxMatrix(transform) * geo_transform
 
-            for i in range(len(normal_values)):
-                n = normal_values[i]
-                normal = FbxVector4(n[0], n[1], n[2])
-                normal = transform.MultNormalize(normal)
-                normal_values[i] = convert_fbx_vec3(normal)
+            elif hasGeometricTransform:
+                transform = geo_transform
+                
+            if transform:
+                for i in range(len(normal_values)):
+                    n = normal_values[i]
+                    normal = FbxVector4(n[0], n[1], n[2])
+                    normal = transform.MultNormalize(normal)
+                    normal_values[i] = convert_fbx_vec3(normal)
 
         # indices
         vertexId = 0
