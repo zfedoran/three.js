@@ -24,6 +24,11 @@ global_up_vector = None
 # Templates
 # #####################################################
 def Vector2String(v, no_brackets = False, round_vector = False):
+    # JSON does not support NaN or Inf
+    if math.isnan(v[0]) or math.isinf(v[0]):
+        v[0] = 0
+    if math.isnan(v[1]) or math.isinf(v[1]):
+        v[1] = 0
     if round_vector:
         v = (round(v[0], 5), round(v[1], 5))
     if no_brackets:
@@ -32,6 +37,13 @@ def Vector2String(v, no_brackets = False, round_vector = False):
         return '[ %g, %g ]' % (v[0], v[1])
 
 def Vector3String(v, no_brackets = False, round_vector = False):
+    # JSON does not support NaN or Inf
+    if math.isnan(v[0]) or math.isinf(v[0]):
+        v[0] = 0
+    if math.isnan(v[1]) or math.isinf(v[1]):
+        v[1] = 0
+    if math.isnan(v[2]) or math.isinf(v[2]):
+        v[2] = 0
     if round_vector:
         v = (round(v[0], 5), round(v[1], 5), round(v[2], 5))
     if no_brackets:
@@ -40,6 +52,15 @@ def Vector3String(v, no_brackets = False, round_vector = False):
         return '[ %g, %g, %g ]' % (v[0], v[1], v[2])
 
 def Vector4String(v, no_brackets = False, round_vector = False):
+    # JSON does not support NaN or Inf
+    if math.isnan(v[0]) or math.isinf(v[0]):
+        v[0] = 0
+    if math.isnan(v[1]) or math.isinf(v[1]):
+        v[1] = 0
+    if math.isnan(v[2]) or math.isinf(v[2]):
+        v[2] = 0
+    if math.isnan(v[3]) or math.isinf(v[3]):
+        v[3] = 0
     if round_vector:
         v = (round(v[0], 5), round(v[1], 5), round(v[2], 5), round(v[3], 5))
     if no_brackets:
