@@ -562,6 +562,19 @@ def extract_fbx_vertex_positions(mesh):
         transform = node.EvaluateGlobalTransform()
         transform = FbxMatrix(transform)
 
+        t = node.GeometricTranslation.Get()
+        t = FbxVector4(t[0], t[1], t[2], 1)
+        r = node.GeometricRotation.Get()
+        r = FbxVector4(r[0], r[1], r[2], 1)
+        s = node.GeometricScaling.Get()
+        s = FbxVector4(s[0], s[1], s[2], 1)
+
+        a = FbxAMatrix()
+        a.SetTRS(t,r,s)
+        a = FbxMatrix(a)
+
+        transform = transform * a
+
         for i in range(len(positions)):
             v = positions[i]
             position = FbxVector4(v[0], v[1], v[2])
@@ -610,6 +623,19 @@ def extract_fbx_vertex_normals(mesh):
             transform = node.EvaluateGlobalTransform()
             transform.SetT(FbxVector4(0,0,0,0))
             transform = FbxMatrix(transform)
+
+            t = node.GeometricTranslation.Get()
+            t = FbxVector4(t[0], t[1], t[2], 1)
+            r = node.GeometricRotation.Get()
+            r = FbxVector4(r[0], r[1], r[2], 1)
+            s = node.GeometricScaling.Get()
+            s = FbxVector4(s[0], s[1], s[2], 1)
+
+            a = FbxAMatrix()
+            a.SetTRS(t,r,s)
+            a = FbxMatrix(a)
+
+            transform = transform * a
 
             for i in range(len(normal_values)):
                 n = normal_values[i]
