@@ -131,10 +131,23 @@ def getEmbedName(e, force_prefix = False):
     return prefix + e.GetName()
 
 def getMaterialName(m, force_prefix = False):
+    material_name = m.GetName() 
+    if not force_prefix:
+        root = m.GetScene()
+        material_count = root.GetSrcObjectCount(FbxSurfaceMaterial.ClassId)
+        for i in range(material_count):
+            other = root.GetSrcObject(FbxSurfaceMaterial.ClassId, i)
+            if other == m:
+                continue
+            other_name = other.GetName() 
+            if other_name == material_name:
+                force_prefix = True
+
     prefix = ""
     if option_prefix or force_prefix:
         prefix = "Material_%s_" % m.GetUniqueID()
-    return prefix + m.GetName()
+
+    return prefix + material_name
 
 def getTextureName(t, force_prefix = False):
     if type(t) is FbxFileTexture:
@@ -461,13 +474,10 @@ def extract_materials_from_node(node, material_list):
             for i in range(material_count):
                 material = node.GetMaterial(i)
                 material_names.append(getMaterialName(material))
-                material_string = generate_material_string(material)
-                material_list.append(material_string)
 
     if material_count > 1:
-      proxy_material = generate_proxy_material_string(node, material_names)
-      material_list.append(proxy_material)
-
+        proxy_material = generate_proxy_material_string(node, material_names)
+        material_list.append(proxy_material)
 
 def generate_materials_from_hierarchy(node, material_list):
     if node.GetNodeAttribute() == None:
@@ -481,10 +491,19 @@ def generate_materials_from_hierarchy(node, material_list):
 
 def generate_material_list(scene):
     material_list = []
+
+    material_count = scene.GetSrcObjectCount(FbxSurfaceMaterial.ClassId)
+    for i in range(material_count):
+        material = scene.GetSrcObject(FbxSurfaceMaterial.ClassId, i)
+        material_string = generate_material_string(material)
+        material_list.append(material_string)
+
+    # generate material porxies
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
             generate_materials_from_hierarchy(node.GetChild(i), material_list)
+
     return material_list
 
 # #####################################################
