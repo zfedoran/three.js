@@ -96,58 +96,53 @@ def BoolString(value):
 # #####################################################
 # Helpers
 # #####################################################
+def hasUniqueName(o, class_id):
+    scene = o.GetScene()
+    object_name = o.GetName() 
+    object_id = o.GetUniqueID()
+
+    object_count = scene.GetSrcObjectCount(class_id)
+
+    for i in range(object_count):
+        other = scene.GetSrcObject(class_id, i)
+        other_id = other.GetUniqueID()
+        other_name = other.GetName() 
+
+        if other_id == object_id:
+            continue
+        if other_name == object_name:
+            return False
+
+    return True
+
 def getObjectName(o, force_prefix = False): 
     if not o:
         return ""  
 
     object_name = o.GetName() 
+    object_id = o.GetUniqueID()
+
     if not force_prefix:
-        root = o.GetScene()
-        object_count = root.GetSrcObjectCount(FbxNode.ClassId)
-        for i in range(object_count):
-            other = root.GetSrcObject(FbxNode.ClassId, i)
-            if other == o:
-                continue
-            other_name = other.GetName() 
-            if other_name == object_name:
-                force_prefix = True
+        force_prefix = not hasUniqueName(o, FbxNode.ClassId)
 
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Object_%s_" % o.GetUniqueID()
+        prefix = "Object_%s_" % object_id
 
     return prefix + object_name
-      
-def getGeometryName(g, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Geometry_%s_" % g.GetUniqueID()
-    return prefix + g.GetName()
 
-def getEmbedName(e, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Embed_%s_" % e.GetUniqueID()
-    return prefix + e.GetName()
+def getMaterialName(o, force_prefix = False):
+    object_name = o.GetName() 
+    object_id = o.GetUniqueID()
 
-def getMaterialName(m, force_prefix = False):
-    material_name = m.GetName() 
     if not force_prefix:
-        root = m.GetScene()
-        material_count = root.GetSrcObjectCount(FbxSurfaceMaterial.ClassId)
-        for i in range(material_count):
-            other = root.GetSrcObject(FbxSurfaceMaterial.ClassId, i)
-            if other == m:
-                continue
-            other_name = other.GetName() 
-            if other_name == material_name:
-                force_prefix = True
+        force_prefix = not hasUniqueName(o, FbxSurfaceMaterial.ClassId)
 
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Material_%s_" % m.GetUniqueID()
+        prefix = "Material_%s_" % object_id
 
-    return prefix + material_name
+    return prefix + object_name
 
 def getTextureName(t, force_prefix = False):
     if type(t) is FbxFileTexture:
@@ -164,35 +159,47 @@ def getTextureName(t, force_prefix = False):
             prefix = prefix[0:len(prefix)-1]
     return prefix + texture_id
 
-def getAnimationName(a, force_prefix = False):
+def getGeometryName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Animation_%s_" % a.GetUniqueID()
-    return prefix + a.GetName()
+        prefix = "Geometry_%s_" % o.GetUniqueID()
+    return prefix + o.GetName()
+
+def getEmbedName(o, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Embed_%s_" % o.GetUniqueID()
+    return prefix + o.GetName()
+
+def getAnimationName(o, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Animation_%s_" % o.GetUniqueID()
+    return prefix + o.GetName()
     
-def getAnimationLayerName(l, force_prefix = False):
+def getAnimationLayerName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Layer_%s" % l.GetUniqueID()
+        prefix = "Layer_%s" % o.GetUniqueID()
     return prefix 
 
-def getAnimationCurveName(c, force_prefix = False):
+def getAnimationCurveName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Curve_%s" % c.GetUniqueID()
+        prefix = "Curve_%s" % o.GetUniqueID()
     return prefix 
 
-def getPoseName(p, force_prefix = False):
+def getPoseName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Pose_%s_" % p.GetUniqueID()
-    return prefix + p.GetName()
+        prefix = "Pose_%s_" % o.GetUniqueID()
+    return prefix + o.GetName()
 
-def getFogName(f, force_prefix = False):
+def getFogName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Fog_%s_" % f.GetUniqueID()
-    return prefix + f.GetName()
+        prefix = "Fog_%s_" % o.GetUniqueID()
+    return prefix + o.GetName()
 
 def getObjectVisible(n):
     return BoolString(True)
