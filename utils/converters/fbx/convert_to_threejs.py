@@ -18,7 +18,8 @@ option_default_light = False
 option_animation = False
 
 converter = None
-global_up_vector = None
+mtl_library = None
+mtl_texture_count = 0
 
 # #####################################################
 # Templates
@@ -158,6 +159,12 @@ def getTextureName(t, force_prefix = False):
         if len(texture_id) == 0:
             prefix = prefix[0:len(prefix)-1]
     return prefix + texture_id
+
+def getMtlTextureName(t, tId, force_prefix = False):
+    prefix = ""
+    if option_prefix or force_prefix:
+        prefix = "Texture_%s_" % tId
+    return prefix + t
 
 def getGeometryName(o, force_prefix = False):
     prefix = ""
@@ -425,13 +432,36 @@ def generate_material_string(material):
         ]
 
     if option_textures:
-        texture_list = []
-        texture_count = FbxLayerElement.sTypeTextureCount()
-        for texture_index in range(texture_count):
-            material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-            generate_texture_bindings(material_property, texture_list)
+        if mtl_texture_count == 0:
+          
+            texture_list = []
+            texture_count = FbxLayerElement.sTypeTextureCount()
+            for texture_index in range(texture_count):
+                material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
+                generate_texture_bindings(material_property, texture_list)
+            output += texture_list
 
-        output += texture_list
+        else:
+
+            for mtl_material in mtl_library:
+                if material.GetName() == mtl_material['name']:
+                    if 'AmbientColor' in mtl_material:
+                        texture_name = getMtlTextureName(mtl_material['AmbientColor'], mtl_material['AmbientColorId'], True)
+                        texture_binding = '		"%s": %s,' % ('ambientMap', LabelString(texture_name))
+                        output.append(texture_binding)
+                    if 'DiffuseColor' in mtl_material:
+                        texture_name = getMtlTextureName(mtl_material['DiffuseColor'], mtl_material['DiffuseColorId'], True)
+                        texture_binding = '		"%s": %s,' % ('map', LabelString(texture_name))
+                        output.append(texture_binding)
+                    if 'SpecularColor' in mtl_material:
+                        texture_name = getMtlTextureName(mtl_material['SpecularColor'], mtl_material['SpecularColorId'], True)
+                        texture_binding = '		"%s": %s,' % ('specularMap', LabelString(texture_name))
+                        output.append(texture_binding)
+                    if 'Bump' in mtl_material:
+                        texture_name = getMtlTextureName(mtl_material['Bump'], mtl_material['BumpId'], True)
+                        texture_binding = '		"%s": %s,' % ('bumpMap', LabelString(texture_name))
+                        output.append(texture_binding)
+
 
     wireframe = BoolString(False)
     wireframeLinewidth = "1"
@@ -543,6 +573,22 @@ def generate_texture_string(texture):
 
     return generateMultiLineString( output, '\n\t\t', 0 )
 
+def generate_mtl_texture_string(texture, textureId):
+
+    output = [
+
+    '\t' + LabelString( getMtlTextureName( texture, textureId, True ) ) + ': {',
+    '	"url"    : ' + LabelString( texture ) + ',',
+    '	"repeat" : ' + Vector2String( (1,1) ) + ',',
+    '	"offset" : ' + Vector2String( (0,0) ) + ',',
+    '	"magFilter" : ' + LabelString( "LinearFilter" ) + ',',
+    '	"minFilter" : ' + LabelString( "LinearMipMapLinearFilter" ) + ',',
+    '	"anisotropy" : ' + BoolString( True ),
+    '}'
+
+    ]
+
+    return generateMultiLineString( output, '\n\t\t', 0 )
 # #####################################################
 # Parse - Textures 
 # #####################################################
@@ -579,10 +625,41 @@ def extract_textures_from_node(node, texture_list):
 
         #go through all the possible textures types
         if material:            
-            texture_count = FbxLayerElement.sTypeTextureCount()
-            for texture_index in range(texture_count):
-                material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-                extract_material_textures(material_property, texture_list)
+            if mtl_texture_count == 0:
+
+                texture_count = FbxLayerElement.sTypeTextureCount()
+                for texture_index in range(texture_count):
+                    material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
+                    extract_material_textures(material_property, texture_list)
+
+            else:
+
+                for mtl_material in mtl_library:
+                    if material.GetName() == mtl_material['name']:
+                        if 'AmbientColor' in mtl_material:
+                            texture_name = mtl_material['AmbientColor'] 
+                            texture_id = mtl_material['AmbientColorId'] 
+                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
+                            texture_list.append(texture_string)
+                            del(mtl_material['AmbientColor'])
+                        if 'DiffuseColor' in mtl_material:
+                            texture_name = mtl_material['DiffuseColor'] 
+                            texture_id = mtl_material['DiffuseColorId'] 
+                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
+                            texture_list.append(texture_string)
+                            del(mtl_material['DiffuseColor'])
+                        if 'SpecularColor' in mtl_material:
+                            texture_name = mtl_material['SpecularColor'] 
+                            texture_id = mtl_material['SpecularColorId'] 
+                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
+                            texture_list.append(texture_string)
+                            del(mtl_material['SpecularColor'])
+                        if 'Bump' in mtl_material:
+                            texture_name = mtl_material['Bump'] 
+                            texture_id = mtl_material['BumpId'] 
+                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
+                            texture_list.append(texture_string)
+                            del(mtl_material['Bump'])
 
 def generate_textures_from_hierarchy(node, texture_list):
     if node.GetNodeAttribute() == None:
@@ -1652,7 +1729,7 @@ def generate_light_string(node, padding):
             scale = FbxVector4(1,1,1,1)
             rotation = transform.GetR()
             matrix = FbxMatrix(translation, rotation, scale)
-            direction = matrix.MultNormalize(global_up_vector) 
+            direction = matrix.MultNormalize(FbxVector4(0,1,0,1)) 
 
         output = [
 
@@ -2445,8 +2522,8 @@ def extract_scene(scene, filename):
     global_settings = scene.GetGlobalSettings()
     objects, nobjects = generate_scene_objects_string(scene)
 
-    textures = generate_texture_list(scene)
     materials = generate_material_list(scene)
+    textures = generate_texture_list(scene)
     geometries = generate_geometry_list(scene)
     embeds = generate_embed_list(scene)
     fogs = []
@@ -2611,10 +2688,120 @@ def extract_geometry(scene, filename):
 # #####################################################
 # file helpers
 # #####################################################
-def write_file(fname, content):
-    out = open(fname, "w")
+def write_file(filepath, content):
+    out = open(filepath, "w")
     out.write(content.encode('utf8', 'replace'))
     out.close()
+
+def read_file(filepath):
+    f = open(filepath)
+    content = f.readlines()
+    f.close()
+    return content
+
+def findFilesWithExt(directory, ext, include_path = True):
+    ext = ext.lower()
+    found = []
+    for root, dirs, files in os.walk(directory):
+        for filename in files:
+            current_ext = os.path.splitext(filename)[1].lower()
+            if current_ext == ext:
+                if include_path:
+                    found.append(os.path.join(root, filename))    
+                else:
+                    found.append(filename)    
+    return found
+            
+# #####################################################
+# Parse - Wavefront MLT 
+# #####################################################
+def parseMtlFile(filepath, textures):
+    global mtl_texture_count
+
+    material_library = []
+    content = read_file(filepath)
+
+    comment_char = '#'
+    mtl_def = 'newmtl '
+    ambi_def = 'map_Ka '   # the ambient texture map
+    diff_def = 'map_Kd '   # the diffuse texture map
+    spec_def = 'map_Ks '  # specular color texture map
+    bump_def0 = 'map_bump '   # some implementations use 'map_bump' instead of 'bump'
+    bump_def1 = 'bump '
+    material = None
+    for line in content:
+        if not comment_char in line:
+
+            if mtl_def in line:
+                if material:
+                    if 'AmbientColor' in material or \
+                       'DiffuseColor' in material or \
+                       'SpecularColor' in material or \
+                       'Bump' in material:
+                            material_library.append(material)
+                material = {}
+                material['name'] = line.split(mtl_def, 1)[1].rstrip()
+
+            elif ambi_def in line:
+                texture_def = line.split(ambi_def, 1)[1].rstrip()
+                if not texture_def.isspace():
+                    for texture_file in textures:
+                        if texture_file in texture_def:
+                            material['AmbientColor'] = texture_file
+                            material['AmbientColorId'] = mtl_texture_count
+                            mtl_texture_count = mtl_texture_count + 1
+
+            elif diff_def in line:
+                texture_def = line.split(diff_def, 1)[1].rstrip()
+                if not texture_def.isspace():
+                    for texture_file in textures:
+                        if texture_file in texture_def:
+                            material['DiffuseColor'] = texture_file
+                            material['DiffuseColorId'] = mtl_texture_count
+                            mtl_texture_count = mtl_texture_count + 1
+
+            elif spec_def in line:
+                texture_def = line.split(spec_def, 1)[1].rstrip()
+                if not texture_def.isspace():
+                    for texture_file in textures:
+                        if texture_file in texture_def:
+                            material['SpecularColor'] = texture_file
+                            material['SpecularColorId'] = mtl_texture_count
+                            mtl_texture_count = mtl_texture_count + 1
+
+            elif bump_def0 in line:
+                texture_def = line.split(bump_def0, 1)[1].rstrip()
+                if not texture_def.isspace():
+                    for texture_file in textures:
+                        if texture_file in texture_def:
+                            material['Bump'] = texture_file
+                            material['BumpId'] = mtl_texture_count
+                            mtl_texture_count = mtl_texture_count + 1
+
+            elif bump_def1 in line:
+                texture_def = line.split(bump_def1, 1)[1].rstrip()
+                if not texture_def.isspace():
+                    for texture_file in textures:
+                        if texture_file in texture_def:
+                            material['Bump'] = texture_file
+                            material['BumpId'] = mtl_texture_count
+                            mtl_texture_count = mtl_texture_count + 1
+
+    return material_library
+
+def parseAllMtlFiles(directory):
+    files = findFilesWithExt(directory, '.mtl')
+
+    supported_texture_formats = ['.jpg','.png','.jpeg','.gif','.tif','.tiff','.bmp','.svg','.dds','.tga','.pcx']
+    texture_files = []
+    for ext in supported_texture_formats:
+        texture_files = texture_files + findFilesWithExt(directory, ext, False)
+
+    material_library = []
+    for filepath in files:
+        material_library = material_library + parseMtlFile(filepath, texture_files)
+
+    return material_library
 
 # #####################################################
 # main
@@ -2681,6 +2868,12 @@ if __name__ == "__main__":
         axis_system = FbxAxisSystem.MayaYUp
         axis_system.ConvertScene(scene)
             
+        # The FBX SDK does not bind all textures in .mtl files, so we have to do it manually
+        if os.path.splitext(args[0])[1].lower() == '.obj':
+            mtl_library = parseAllMtlFiles(os.path.dirname(args[0]))
+        else:
+            mtl_library = []
+
         if option_geometry:
             output_content = extract_geometry(scene, os.path.basename(args[0]))
         else:
