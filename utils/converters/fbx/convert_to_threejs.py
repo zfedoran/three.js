@@ -2790,6 +2790,13 @@ def parseMtlFile(filepath, textures):
                             material['BumpId'] = mtl_texture_count
                             mtl_texture_count = mtl_texture_count + 1
 
+    if material:
+        if 'AmbientColor' in material or \
+           'DiffuseColor' in material or \
+           'SpecularColor' in material or \
+           'Bump' in material:
+                material_library.append(material)
+
     return material_library
 
 def parseAllMtlFiles(directory):
