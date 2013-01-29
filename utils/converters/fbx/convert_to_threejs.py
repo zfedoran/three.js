@@ -1784,15 +1784,9 @@ def generate_ambient_light_string(scene):
     if ambient_color[0] == 0 and ambient_color[1] == 0 and ambient_color[2] == 0:
         return None
 
-    class AmbientLight:
-        def GetName(self):
-            return "AmbientLight"
-
-    node = AmbientLight()
-
     output = [
 
-    '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+    '\t\t' + LabelString( "AmbientLight" ) + ' : {',
     '	"type"  : "AmbientLight",',
     '	"color" : ' + str(getHex(ambient_color)),
     '}'
