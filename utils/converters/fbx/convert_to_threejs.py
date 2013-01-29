@@ -160,11 +160,12 @@ def getTextureName(t, force_prefix = False):
             prefix = prefix[0:len(prefix)-1]
     return prefix + texture_id
 
-def getMtlTextureName(t, tId, force_prefix = False):
+def getMtlTextureName(texture_name, texture_id, force_prefix = False):
+    texture_name = os.path.splitext(texture_name)[0]
     prefix = ""
     if option_prefix or force_prefix:
-        prefix = "Texture_%s_" % tId
-    return prefix + t
+        prefix = "Texture_%s_" % texture_id
+    return prefix + texture_name
 
 def getGeometryName(o, force_prefix = False):
     prefix = ""
@@ -461,6 +462,7 @@ def generate_material_string(material):
                         texture_name = getMtlTextureName(mtl_material['Bump'], mtl_material['BumpId'], True)
                         texture_binding = '		"%s": %s,' % ('bumpMap', LabelString(texture_name))
                         output.append(texture_binding)
+                    break
 
 
     wireframe = BoolString(False)
@@ -660,6 +662,7 @@ def extract_textures_from_node(node, texture_list):
                             texture_string = generate_mtl_texture_string(texture_name, texture_id)
                             texture_list.append(texture_string)
                             del(mtl_material['Bump'])
+                        break
 
 def generate_textures_from_hierarchy(node, texture_list):
     if node.GetNodeAttribute() == None:
