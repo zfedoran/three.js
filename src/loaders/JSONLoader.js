@@ -148,7 +148,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                 parent_index = skinning.bones.indexOf(bone_node._parent._name);
               }
 
-              //bone_node = pose[bone_name];
+              var pose_node = pose[bone_name];
               var bone = {
                 "parent" : parent_index,
                 "name" : bone_name,
@@ -162,6 +162,13 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
 
               var keys = {};
 
+              addKey(0, bone_node.position, "position", keys);
+              addKey(0, bone_node.quaternion, "rotation", keys);
+              addKey(0, bone_node.scale, "scale", keys);
+              addKey(take.stop, bone_node.position, "position", keys);
+              addKey(take.stop, bone_node.quaternion, "rotation", keys);
+              addKey(take.stop, bone_node.scale, "scale", keys);
+
               for ( var j = 0; j < layer.curves.length; j++ ) {
                 var curve_name = layer.curves[j];
                 var curve = curves[curve_name];
@@ -173,7 +180,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                     for ( var c = 0; c < curve.channels; c++ ) {
                       value.push(curve.keys[k+c+1]);
                     }
-                    addKey( time, value, curve.property, keys);
+                    addKey(time, value, curve.property, keys);
                   }
                 }
               }

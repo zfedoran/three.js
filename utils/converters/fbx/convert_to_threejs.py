@@ -2035,18 +2035,29 @@ def generate_scene_objects_string(scene):
 # #####################################################
 # Parse - Poses
 # #####################################################
-def generate_pose_node_string(node, root, padding):
-    local_bone = FbxMatrix(node.EvaluateLocalTransform())
+def get_local_pose_transform(pose, node_index):
+    node = pose.GetNode(node_index)
+    parent = node.GetParent()
 
-    if node == root:
-      local_bone = FbxMatrix()
+    if parent:
+        parent_index = pose.Find(parent)
+        a = pose.GetMatrix(node_index)
+        b = pose.GetMatrix(parent_index)
+        c = b.Inverse()
+        return c * a
+    else:
+        return pose.GetMatrix(node_index)
+
+def generate_pose_node_string(pose, node_index, padding):
+    node = pose.GetNode(node_index)
+    transform = get_local_pose_transform(pose, node_index)
 
     t = FbxVector4()
     q = FbxQuaternion()
     sh = FbxVector4()
     sc = FbxVector4()
 
-    local_bone.GetElements(t, q, sh, sc)
+    sign = transform.GetElements(t, q, sh, sc)
 
     output = [
 
@@ -2060,29 +2071,26 @@ def generate_pose_node_string(node, root, padding):
 
     return generateMultiLineString( output, '\n\t\t', padding )
 
-def generate_pose_string(root_bone, padding):
-    bone_list = []        
-    generate_bone_list_from_hierarchy(root_bone, bone_list)
+def generate_pose_string(pose, padding):
+    node_list = []
 
-    pose_node_strings = []
-    for node in bone_list:
-        pose_node_string = generate_pose_node_string(node, root_bone, 1)
-        pose_node_strings.append(pose_node_string)
+    for n in range(pose.GetCount()):
+        pose_node = generate_pose_node_string(pose, n, 1)
+        node_list.append(pose_node)
 
-    pose_string = generateMultiLineString( pose_node_strings, ',\n\t\t', padding )
+    pose_nodes = generateMultiLineString( node_list, ',\n\t\t', padding )
       
-    output = [ '\t{', pose_string, '},' ]
+    output = [ '\t{', pose_nodes, '},', ]
 
     return generateMultiLineString( output, '\n\t\t', padding )
 
 def generate_pose_list(scene):
     pose_list = []
+    
+    for p in range(scene.GetPoseCount()):
+        pose = scene.GetPose(p)
 
-    skeleton_list = generate_list_of_skeleton_root_nodes(scene)
-    skeleton_root = None
-
-    for root_bone in skeleton_list:
-        pose_string = generate_pose_string(root_bone, 0)
+        pose_string = generate_pose_string(pose, 0)
         pose_list.append(pose_string)
 
     return pose_list
@@ -2205,11 +2213,21 @@ def generate_rotation_curve_string(node, curve_node, root):
         if not 'Z' in rotation:
             rotation['Z'] = local[2]
 
+        t = FbxVector4()
+        q = FbxQuaternion()
+        sh = FbxVector4()
+        sc = FbxVector4()
+
+        transform = FbxMatrix(node.EvaluateLocalTransform(time))
+        transform.GetElements(t, q, sh, sc)
+
+
         rotation = FbxVector4(rotation['X'], rotation['Y'], rotation['Z'], 1)
         rotation = rotation - offset
 
         quaternion = FbxQuaternion()
         quaternion.ComposeSphericalXYZ(rotation)
+        quaternion = q
 
         keyframes.append(round(quaternion[0],6))
         keyframes.append(round(quaternion[1],6))
@@ -2468,8 +2486,9 @@ def extract_fbx_skinning_data(mesh):
         a = vertex_weights[0][0]
         b = vertex_weights[1][0]
         length = math.sqrt(a + b)
-        a = a / length
-        b = b / length
+        if length != 0:
+            a = a / length
+            b = b / length
         vertex_weights[0] = (a, vertex_weights[0][1])
         vertex_weights[1] = (b, vertex_weights[1][1])
 

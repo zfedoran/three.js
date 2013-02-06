@@ -11,7 +11,8 @@
 				font-size:13px;
 				text-align:center;
 
-				background-color: #000;
+        background-color: rgb(73, 73, 73);
+        box-shadow: 0px 0px 108px 0px rgba(0, 0, 0, 0.47) inset;
 				margin: 0px;
 				overflow: hidden;
 			}
@@ -28,16 +29,11 @@
 			}
 
 		</style>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.0/jquery.min.js"></script>
 	</head>
 	<body>
 
 		<div id="container"></div>
-
-		<div id="info">
-		<a href="http://threejs.org" target="_blank">three.js</a> webgl - animation - skinning -
-		buffalo model from <a href="http://ro.me">ro.me</a><br/>
-		click to start animation
-		</div>
 
 		<script src="../build/three.js"></script>
 
@@ -62,7 +58,6 @@
 			var windowHalfX = window.innerWidth / 2;
 			var windowHalfY = window.innerHeight / 2;
 
-
 			var playback = false;
 
 			var clock = new THREE.Clock();
@@ -86,18 +81,14 @@
           window.scene = scene;
 
 
-          scene.fog = new THREE.FogExp2( 0xffffff, 0.0003 );
-          scene.fog.color.setHSV( 0.1, 0.10, 1 );
-
           light = new THREE.DirectionalLight( 0xffffff, 1.5 );
           light.position.set( 0, 1, 1 ).normalize();
           scene.add( light );
           
           initNemo(result.scene);
 
-          renderer = new THREE.WebGLRenderer( { clearColor: 0xffffff, clearAlpha: 1, antialias: true } );
+          renderer = new THREE.WebGLRenderer( {  antialias: true } );
           renderer.setSize( window.innerWidth, window.innerHeight );
-          renderer.setClearColor( scene.fog.color, 1 );
           renderer.sortObjects = false;
           renderer.autoClear = false;
 
@@ -117,7 +108,7 @@
           stats = new Stats();
           stats.domElement.style.position = 'absolute';
           stats.domElement.style.top = '0px';
-          container.appendChild( stats.domElement );
+
 
 
           loop();
@@ -161,6 +152,7 @@
           }
         }
 
+
         nemo.material = material;
         THREE.AnimationHandler.add( nemo.geometry.animation );
 
@@ -169,8 +161,9 @@
         light.position.set( 0, 1, 1 ).normalize();
         boxes_scene.add( light );
         
-        var geometry = new THREE.CubeGeometry( 0.1, 0.1, 0.1 );
         var geometry = new THREE.CylinderGeometry(0, 0.1, 0.4, 4, 4, false)
+
+        var projector = new THREE.Projector();
 
         for (var i = 0; i<nemo.bones.length; i++) {
 					var object = new THREE.Mesh( geometry, new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } ) );
@@ -179,6 +172,12 @@
           object.position = nemo.bones[i].position;
 					boxes_scene.add( object );
 					boxes.push( object );
+          
+          var $box_div = $('<div></div>');
+          $box_div.text(object.name);
+          $box_div.css({position:'absolute', display:'inline-box', background:'rgba(0,0,0,0.4)', color:'white', 'font-family':'Arial', 'font-size':'11px'});
+          $box_div.prependTo('body');
+          object.divtag = $box_div;
 				}
 
 
@@ -202,6 +201,7 @@
 
 			}
 
+      var projector = new THREE.Projector();
 			function loop() {
 
 				requestAnimationFrame( loop, renderer.domElement );
@@ -209,6 +209,7 @@
 				var delta = clock.getDelta();
 
 				THREE.AnimationHandler.update( delta );
+
 
         if (nemo)
         for (var i = 0; i<animation.hierarchy.length; i++) {
@@ -222,6 +223,15 @@
 
           object.quaternion = decomposed[1];
           object.useQuaternion = true;
+
+          var position = new THREE.Vector3();
+          position.x = object.position.x;
+          position.y = object.position.y;
+          position.z = object.position.z;
+          projector.projectVector(position, camera);
+          position.x = (position.x * window.innerWidth) / 2 + window.innerWidth/2;
+          position.y = -(position.y * window.innerHeight) / 2 + window.innerHeight/2;
+          object.divtag.css({left:position.x, top: position.y});
 				}
 
 				camera.lookAt( scene.position );

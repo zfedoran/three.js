@@ -153,6 +153,9 @@ THREE.Animation.prototype.update = function ( deltaTimeMS ) {
 			prevKey = animationCache.prevKey[ type ];
 			nextKey = animationCache.nextKey[ type ];
 
+      if ( !prevKey || !nextKey ) 
+        continue;
+
 			// switch keys?
 
 			if ( nextKey.time <= unloopedCurrentTime ) {
