@@ -2080,7 +2080,7 @@ def generate_pose_string(pose, padding):
 
     pose_nodes = generateMultiLineString( node_list, ',\n\t\t', padding )
       
-    output = [ '\t{', pose_nodes, '},', ]
+    output = [ '\t{', pose_nodes, '}', ]
 
     return generateMultiLineString( output, '\n\t\t', padding )
 
@@ -2136,149 +2136,59 @@ def generate_curve_node_string(node, curve_node, property_name, key_list, channe
 
     return generateMultiLineString( output, '\n\t\t', 1 )
 
-def generate_position_curve_string(node, curve_node, root):
+def generate_curve_string(channel, node, curve_node, stack):
     time_list = generate_animation_key_time_list(curve_node)
+
+    if len(time_list) < 2:
+        time_span = stack.GetLocalTimeSpan() 
+        start_time = time_span.GetStart()
+        stop_time = time_span.GetStop()
+        time_list.append(start_time)
+        time_list.append(stop_time)
+
     keyframes = []
-
-    local = node.EvaluateLocalTranslation()
-    offset = FbxVector4()
-    if node == root:
-        offset = local
-
-
-        mesh_count = scene.GetSrcObjectCount(FbxSkin.ClassId)
-        mesh_node = scene.GetSrcObject(FbxSkin.ClassId, 0).GetGeometry().GetNode(0)
-        #cluster = mesh.GetDeformer(0, FbxDeformer.eSkin).GetCluster(0)
-
-    
-    for time in time_list:
-        keyframes.append(time.GetSecondDouble())
-        position = {}
-        for i in range(curve_node.GetChannelsCount()):
-            curve = curve_node.GetCurve(i)
-            if not curve:
-                continue
-
-            channel_name = curve_node.GetChannelName(i)
-
-            key_index = curve.KeyFind(time)[1]
-            key_value = curve.KeyGetValue(key_index)
-
-            position[str(channel_name)] = key_value
-
-        if not 'X' in position:
-            position['X'] = local[0]
-        if not 'Y' in position:
-            position['Y'] = local[1]
-        if not 'Z' in position:
-            position['Z'] = local[2]
-
-        position = FbxVector4(position['X'], position['Y'], position['Z'], 1)
-        position = position - offset
-
-        keyframes.append(round(position[0],6))
-        keyframes.append(round(position[1],6))
-        keyframes.append(round(position[2],6))
-
-    return generate_curve_node_string(node, curve_node, 'position', keyframes, 3)
-
-def generate_rotation_curve_string(node, curve_node, root):
-    time_list = generate_animation_key_time_list(curve_node)
-    keyframes = []
-
-    local = node.EvaluateLocalRotation()
-    offset = FbxVector4()
-    if node == root:
-        offset = local
 
     for time in time_list:
         keyframes.append(time.GetSecondDouble())
-        rotation = {}
-        for i in range(curve_node.GetChannelsCount()):
-            curve = curve_node.GetCurve(i)
-            if not curve:
-                continue
-
-            channel_name = curve_node.GetChannelName(i)
-
-            key_index = curve.KeyFind(time)[1]
-            key_value = curve.KeyGetValue(key_index)
-
-            rotation[str(channel_name)] = key_value
-
-        if not 'X' in rotation:
-            rotation['X'] = local[0]
-        if not 'Y' in rotation:
-            rotation['Y'] = local[1]
-        if not 'Z' in rotation:
-            rotation['Z'] = local[2]
 
         t = FbxVector4()
-        q = FbxQuaternion()
         sh = FbxVector4()
         sc = FbxVector4()
+        q = FbxQuaternion()
 
         transform = FbxMatrix(node.EvaluateLocalTransform(time))
         transform.GetElements(t, q, sh, sc)
 
+        if channel == "position":
+            keyframes.append(t[0])
+            keyframes.append(t[1])
+            keyframes.append(t[2])
+        elif channel == "rotation":
+            keyframes.append(q[0])
+            keyframes.append(q[1])
+            keyframes.append(q[2])
+            keyframes.append(q[3])
+        elif channel == "scale":
+            keyframes.append(sc[0])
+            keyframes.append(sc[1])
+            keyframes.append(sc[2])
 
-        rotation = FbxVector4(rotation['X'], rotation['Y'], rotation['Z'], 1)
-        rotation = rotation - offset
+    if channel == "rotation":
+        return generate_curve_node_string(node, curve_node, channel, keyframes, 4)
+    else:
+        return generate_curve_node_string(node, curve_node, channel, keyframes, 3)
 
-        quaternion = FbxQuaternion()
-        quaternion.ComposeSphericalXYZ(rotation)
-        quaternion = q
-
-        keyframes.append(round(quaternion[0],6))
-        keyframes.append(round(quaternion[1],6))
-        keyframes.append(round(quaternion[2],6))
-        keyframes.append(round(quaternion[3],6))
-
-    return generate_curve_node_string(node, curve_node, 'rotation', keyframes, 4)
-
-def generate_scale_curve_string(node, curve_node, root):
-    time_list = generate_animation_key_time_list(curve_node)
-    keyframes = []
-
-    local = node.EvaluateLocalScaling()
-    offset = FbxVector4()
-    if node == root:
-        offset = local
-
-    for time in time_list:
-        keyframes.append(time.GetSecondDouble())
-        scale = {}
-        for i in range(curve_node.GetChannelsCount()):
-            curve = curve_node.GetCurve(i)
-            if not curve:
-                continue
-
-            channel_name = curve_node.GetChannelName(i)
-
-            key_index = curve.KeyFind(time)[1]
-            key_value = curve.KeyGetValue(key_index)
-
-            scale[str(channel_name)] = key_value
-
-        if not 'X' in scale:
-            scale['X'] = local[0]
-        if not 'Y' in scale:
-            scale['Y'] = local[1]
-        if not 'Z' in scale:
-            scale['Z'] = local[2]
-
-        scale = FbxVector4(scale['X'], scale['Y'], scale['Z'], 1)
-        scale = scale - offset
-
-        keyframes.append(round(scale[0],6))
-        keyframes.append(round(scale[1],6))
-        keyframes.append(round(scale[2],6))
-
-    return generate_curve_node_string(node, curve_node, 'scale', keyframes, 3)
+def find_stack_for_layer(scene, layer):
+    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
+    for i in range(animation_count):
+        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+        layer_count = stack.GetSrcObjectCount(FbxAnimLayer.ClassId)
+        for j in range(layer_count):
+            current_layer = stack.GetSrcObject(FbxAnimLayer.ClassId, j)
+            if current_layer.GetUniqueID() == layer.GetUniqueID():
+                return stack
 
 def generate_animation_curve_list(scene):
-    skeleton_root_nodes = generate_list_of_skeleton_root_nodes(scene)
-
     curve_list = []
 
     unrollFilter = FbxAnimCurveFilterUnroll()
@@ -2304,37 +2214,29 @@ def generate_animation_curve_list(scene):
 
     for l in range(layer_count):
         layer = scene.GetSrcObject(FbxAnimLayer.ClassId, l)
+        stack = find_stack_for_layer(scene, layer)
+        scene.GetEvaluator().SetContext(stack)
 
         for n in range(scene.GetNodeCount()):
             node = scene.GetNode(n)
-
-            skeleton = None
-            for root_bone in skeleton_root_nodes:
-                if node == root_bone or root_bone.FindChild(node.GetName(), True, True):
-                    skeleton = root_bone
-
-            if not skeleton:
-                continue
                     
             curve_node = node.LclTranslation.GetCurveNode(layer, True)
-            if curve_node.IsAnimated():
-                curve_string = generate_position_curve_string(node, curve_node, skeleton)
-                curve_list.append(curve_string)
+            curve_string = generate_curve_string('position', node, curve_node, stack)
+            curve_list.append(curve_string)
 
             curve_node = node.LclRotation.GetCurveNode(layer, True)
-            if curve_node.IsAnimated():
-                curve_string = generate_rotation_curve_string(node, curve_node, skeleton)
-                curve_list.append(curve_string)
+            curve_string = generate_curve_string('rotation', node, curve_node, stack)
+            curve_list.append(curve_string)
 
             curve_node = node.LclScaling.GetCurveNode(layer, True)
-            if curve_node.IsAnimated():
-                curve_string = generate_scale_curve_string(node, curve_node, skeleton)
-                curve_list.append(curve_string)
+            curve_string = generate_curve_string('scale', node, curve_node, stack)
+            curve_list.append(curve_string)
 
     return curve_list
 
 def generate_animation_layer_string(layer, scene):
-    skeleton_root_nodes = generate_list_of_skeleton_root_nodes(scene)
+    stack = find_stack_for_layer(scene, layer)
+    scene.GetEvaluator().SetContext(stack)
 
     blend_mode_types = ['additive', 'override']
     blend_mode = blend_mode_types[layer.BlendMode.Get()]
@@ -2343,28 +2245,17 @@ def generate_animation_layer_string(layer, scene):
     for n in range(scene.GetNodeCount()):
         node = scene.GetNode(n)
 
-        skeleton = None
-        for root_bone in skeleton_root_nodes:
-            if node == root_bone or root_bone.FindChild(node.GetName(), True, True):
-                skeleton = root_bone
-
-        if not skeleton:
-            continue
-
         curve_node = node.LclTranslation.GetCurveNode(layer, True)
-        if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
-            curve_list.append(curve_string)
+        curve_string = getAnimationCurveName(curve_node, True)
+        curve_list.append(curve_string)
 
         curve_node = node.LclRotation.GetCurveNode(layer, True)
-        if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
-            curve_list.append(curve_string)
+        curve_string = getAnimationCurveName(curve_node, True)
+        curve_list.append(curve_string)
 
         curve_node = node.LclScaling.GetCurveNode(layer, True)
-        if curve_node.IsAnimated():
-            curve_string = getAnimationCurveName(curve_node, True)
-            curve_list.append(curve_string)
+        curve_string = getAnimationCurveName(curve_node, True)
+        curve_list.append(curve_string)
         
     output = [
     '\t' + LabelString( getAnimationLayerName( layer, True ) ) + ' : {',
@@ -2577,9 +2468,6 @@ def extract_scene(scene, filename):
     if option_animation:
         pose_list = generate_pose_list( scene )
         poses = generateMultiLineString( pose_list, ",\n\n\t", 0 )
-
-        if len(poses) > 1:
-            poses = poses[0:(len(poses)-1)]
 
         animation_take_list = generate_animation_list( scene )
         animation_takes = generateMultiLineString( animation_take_list, ",\n\n\t", 0 )

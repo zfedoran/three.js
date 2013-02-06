@@ -30,9 +30,11 @@
 
 		</style>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.0/jquery.min.js"></script>
+    <script src="http://dat-gui.googlecode.com/git/build/dat.gui.min.js"></script>
 	</head>
 	<body>
 
+    <div id="bones"></div>
 		<div id="container"></div>
 
 		<script src="../build/three.js"></script>
@@ -42,6 +44,8 @@
     <script src="js/controls/OrbitControls.js"></script>
 
 		<script>
+
+
 
 			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
 
@@ -61,7 +65,7 @@
 			var playback = false;
 
 			var clock = new THREE.Clock();
-      var nemo, animation;
+      var skinned_mesh, animation;
 
       var boxes = [];
       var controls;
@@ -137,7 +141,9 @@
           fragmentShader: [ "varying vec3 vColor;", "void main() {", "gl_FragColor = vec4( vColor, 1.0 );", "}" ].join("\n")
         };
 
-				var originalMaterial = new THREE.ShaderMaterial( weights );
+        var texture = THREE.ImageUtils.loadTexture( '/Zombie_Texture_2k.jpg' );
+        var originalMaterial = new THREE.MeshLambertMaterial( { map: texture } );
+				// var originalMaterial = new THREE.ShaderMaterial( weights );
 				var material = new THREE.MeshFaceMaterial( [originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial, originalMaterial] );
 
 				originalMaterial.skinning = true;
@@ -147,43 +153,73 @@
         for (var i = 0; i < scene.__objects.length; i++) {
           var object = scene.__objects[i];
           if (object instanceof THREE.SkinnedMesh ) {
-            nemo = object;
+            skinned_mesh = object;
             break;
           }
         }
 
+        skinned_mesh.position.y = -90;
 
-        nemo.material = material;
-        THREE.AnimationHandler.add( nemo.geometry.animation );
+        skinned_mesh.material = material;
+        THREE.AnimationHandler.add( skinned_mesh.geometry.animation );
 
 				boxes_scene = new THREE.Scene();
         light = new THREE.DirectionalLight( 0xffffff, 1.5 );
         light.position.set( 0, 1, 1 ).normalize();
         boxes_scene.add( light );
         
-        var geometry = new THREE.CylinderGeometry(0, 0.1, 0.4, 4, 4, false)
 
         var projector = new THREE.Projector();
 
-        for (var i = 0; i<nemo.bones.length; i++) {
-					var object = new THREE.Mesh( geometry, new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } ) );
+        boneMaterial = new THREE.MeshLambertMaterial( { color: Math.random() * 0xffffff } );
+        var boneGeometry = new THREE.CylinderGeometry(0, 1, 4, 4, 4, false)
+        for (var i = 0; i<skinned_mesh.bones.length; i++) {
+					var object = new THREE.Mesh( boneGeometry, boneMaterial );
 					object.material.ambient = object.material.color;
-          object.name = nemo.bones[i].name;
-          object.position = nemo.bones[i].position;
+          object.name = skinned_mesh.bones[i].name;
+          object.position = skinned_mesh.bones[i].position;
 					boxes_scene.add( object );
 					boxes.push( object );
           
           var $box_div = $('<div></div>');
           $box_div.text(object.name);
           $box_div.css({position:'absolute', display:'inline-box', background:'rgba(0,0,0,0.4)', color:'white', 'font-family':'Arial', 'font-size':'11px'});
-          $box_div.prependTo('body');
+          $box_div.prependTo('#bones');
           object.divtag = $box_div;
 				}
 
 
-        animation = new THREE.Animation( nemo, "Default Take" );
+        animation = new THREE.Animation( skinned_mesh, skinned_mesh.geometry.animation.name );
         window.animation = animation;
 
+        var AnimationDemo = function() {
+          this.boneGeometry = true;
+          this.boneNames = 0.8;
+          this.wireframe = false;
+          this.animate = function() {
+            startAnimation()
+          }
+          this.pause = function() {
+            animation.pause()
+          }
+        };
+
+        var text = new AnimationDemo();
+        var gui = new dat.GUI();
+        var controller = gui.add(text, 'boneGeometry');
+        controller.onFinishChange(function(value) {
+          boneMaterial.visible = value;
+        });
+        controller = gui.add(text, 'boneNames', 0, 1);
+        controller.onChange(function(value) {
+          $('#bones').css({opacity:value});
+        });
+        controller = gui.add(text, 'wireframe');
+        controller.onFinishChange(function(value) {
+           originalMaterial.wireframe = value; 
+        });
+        gui.add(text, 'animate');
+        gui.add(text, 'pause');
 			}
 
 			function startAnimation() {
@@ -211,7 +247,7 @@
 				THREE.AnimationHandler.update( delta );
 
 
-        if (nemo)
+        if (skinned_mesh)
         for (var i = 0; i<animation.hierarchy.length; i++) {
           var object = boxes[i];
           animation.hierarchy[i].updateMatrixWorld(true);
