@@ -16,6 +16,7 @@ option_geometry = False
 option_default_camera = False
 option_default_light = False
 option_animation = False
+option_parse_mtl = False
 
 converter = None
 mtl_library = None
@@ -24,7 +25,7 @@ mtl_texture_count = 0
 # #####################################################
 # Templates
 # #####################################################
-def Vector2String(v, no_brackets = False, round_vector = False):
+def getVector2String(v, no_brackets = False, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -37,7 +38,7 @@ def Vector2String(v, no_brackets = False, round_vector = False):
     else:
         return '[ %g, %g ]' % (v[0], v[1])
 
-def Vector3String(v, no_brackets = False, round_vector = False):
+def getVector3String(v, no_brackets = False, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -52,7 +53,7 @@ def Vector3String(v, no_brackets = False, round_vector = False):
     else:
         return '[ %g, %g, %g ]' % (v[0], v[1], v[2])
 
-def Vector4String(v, no_brackets = False, round_vector = False):
+def getVector4String(v, no_brackets = False, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -69,27 +70,21 @@ def Vector4String(v, no_brackets = False, round_vector = False):
     else:
         return '[ %g, %g, %g, %g ]' % (v[0], v[1], v[2], v[3])
 
-def ColorString(c, no_brackets = False):
-    if no_brackets:
-        return '%g, %g, %g' % (c[0], c[1], c[2])
-    else:
-        return '[ %g, %g, %g ]' % (c[0], c[1], c[2])
-
-def LabelString(s):
+def getLabelString(s):
     s = s.replace('\\','\\\\')
     s = s.replace('"','\\"')
     return '"%s"' % s 
 
-def ArrayString(s):
+def getArrayString(s):
     return '[ %s ]' % s
 
-def PaddingString(n):
+def getPaddingString(n):
     output = ""
     for i in range(n):
         output += "\t"
     return output
         
-def BoolString(value):
+def getBoolString(value):
     if value:
         return "true"
     return "false"
@@ -167,6 +162,7 @@ def getMtlTextureName(texture_name, texture_id, force_prefix = False):
         prefix = "Texture_%s_" % texture_id
     return prefix + texture_name
 
+# TODO: this could be more DRY
 def getGeometryName(o, force_prefix = False):
     prefix = ""
     if option_prefix or force_prefix:
@@ -210,7 +206,7 @@ def getFogName(o, force_prefix = False):
     return prefix + o.GetName()
 
 def getObjectVisible(n):
-    return BoolString(True)
+    return getBoolString(True)
     
 def getRadians(v):
     return ((v[0]*math.pi)/180, (v[1]*math.pi)/180, (v[2]*math.pi)/180)
@@ -239,7 +235,7 @@ def convert_fbx_vec3(v):
 def generate_uvs(uv_layers):
     layers = []
     for uvs in uv_layers:
-        layer = ",".join(Vector2String(n, True) for n in uvs)
+        layer = ",".join(getVector2String(n, True) for n in uvs)
         layers.append(layer)
 
     return ",".join("[%s]" % n for n in layers)
@@ -248,7 +244,7 @@ def generateMultiLineString(lines, separator, padding):
     cleanLines = []
     for i in range(len(lines)):
         line = lines[i]
-        line = PaddingString(padding) + line
+        line = getPaddingString(padding) + line
         cleanLines.append(line)
     return separator.join(cleanLines)
 
@@ -325,7 +321,7 @@ def generate_texture_bindings(material_property, texture_list):
                 for k in range(texture_count):
                     texture = layered_texture.GetSrcObject(FbxTexture.ClassId,k)
                     if texture:
-                        texture_id = LabelString( getTextureName(texture, True) )
+                        texture_id = getLabelString( getTextureName(texture, True) )
                         texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
                         texture_list.append(texture_binding)
         else:
@@ -334,7 +330,7 @@ def generate_texture_bindings(material_property, texture_list):
             for j in range(texture_count):
                 texture = material_property.GetSrcObject(FbxTexture.ClassId,j)
                 if texture:
-                    texture_id = LabelString( getTextureName(texture, True) )
+                    texture_id = getLabelString( getTextureName(texture, True) )
                     texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
                     texture_list.append(texture_binding)
 
@@ -359,12 +355,12 @@ def generate_material_string(material):
         opacity   = 1.0 - material.TransparencyFactor.Get()
         opacity   = 1.0 if opacity == 0 else opacity
         opacity   = str(opacity)
-        transparent = BoolString(False)
+        transparent = getBoolString(False)
         reflectivity = "1"
 
         output = [
 
-        '\t' + LabelString( getMaterialName( material ) ) + ': {',
+        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
         '	"type"    : "MeshLambertMaterial",',
         '	"parameters"  : {',
         '		"color"  : ' 	  + diffuse + ',',
@@ -386,13 +382,13 @@ def generate_material_string(material):
         opacity   = 1.0 if opacity == 0 else opacity
         opacity   = str(opacity)
         shininess = str(material.Shininess.Get())
-        transparent = BoolString(False)
+        transparent = getBoolString(False)
         reflectivity = "1"
         bumpScale = "1"
 
         output = [
 
-        '\t' + LabelString( getMaterialName( material ) ) + ': {',
+        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
         '	"type"    : "MeshPhongMaterial",',
         '	"parameters"  : {',
         '		"color"  : ' 	  + diffuse + ',',
@@ -415,12 +411,12 @@ def generate_material_string(material):
         diffuse   = str(getHex((0.5,0.5,0.5)))
         emissive  = str(getHex((0,0,0)))
         opacity   = str(1)
-        transparent = BoolString(False)
+        transparent = getBoolString(False)
         reflectivity = "1"
 
         output = [
 
-        '\t' + LabelString( getMaterialName( material ) ) + ': {',
+        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
         '	"type"    : "MeshLambertMaterial",',
         '	"parameters"  : {',
         '		"color"  : ' 	  + diffuse + ',',
@@ -448,24 +444,24 @@ def generate_material_string(material):
                 if material.GetName() == mtl_material['name']:
                     if 'AmbientColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['AmbientColor'], mtl_material['AmbientColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('ambientMap', LabelString(texture_name))
+                        texture_binding = '		"%s": %s,' % ('ambientMap', getLabelString(texture_name))
                         output.append(texture_binding)
                     if 'DiffuseColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['DiffuseColor'], mtl_material['DiffuseColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('map', LabelString(texture_name))
+                        texture_binding = '		"%s": %s,' % ('map', getLabelString(texture_name))
                         output.append(texture_binding)
                     if 'SpecularColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['SpecularColor'], mtl_material['SpecularColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('specularMap', LabelString(texture_name))
+                        texture_binding = '		"%s": %s,' % ('specularMap', getLabelString(texture_name))
                         output.append(texture_binding)
                     if 'Bump' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['Bump'], mtl_material['BumpId'], True)
-                        texture_binding = '		"%s": %s,' % ('bumpMap', LabelString(texture_name))
+                        texture_binding = '		"%s": %s,' % ('bumpMap', getLabelString(texture_name))
                         output.append(texture_binding)
                     break
 
 
-    wireframe = BoolString(False)
+    wireframe = getBoolString(False)
     wireframeLinewidth = "1"
 
     output.append('		"wireframe" : ' + wireframe + ',')
@@ -479,10 +475,10 @@ def generate_proxy_material_string(node, material_names):
     
     output = [
 
-    '\t' + LabelString( getMaterialName( node, True ) ) + ': {',
+    '\t' + getLabelString( getMaterialName( node, True ) ) + ': {',
     '	"type"    : "MeshFaceMaterial",',
     '	"parameters"  : {',
-    '		"materials"  : ' + ArrayString( ",".join(LabelString(m) for m in material_names) ),
+    '		"materials"  : ' + getArrayString( ",".join(getLabelString(m) for m in material_names) ),
     '	}',
     '}'
 
@@ -562,13 +558,13 @@ def generate_texture_string(texture):
 
     output = [
 
-    '\t' + LabelString( getTextureName( texture, True ) ) + ': {',
-    '	"url"    : ' + LabelString( url ) + ',',
-    '	"repeat" : ' + Vector2String( (1,1) ) + ',',
-    '	"offset" : ' + Vector2String( texture.GetUVTranslation() ) + ',',
-    '	"magFilter" : ' + LabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + LabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + BoolString( True ),
+    '\t' + getLabelString( getTextureName( texture, True ) ) + ': {',
+    '	"url"    : ' + getLabelString( url ) + ',',
+    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
+    '	"offset" : ' + getVector2String( texture.GetUVTranslation() ) + ',',
+    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
+    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
+    '	"anisotropy" : ' + getBoolString( True ),
     '}'
 
     ]
@@ -579,13 +575,13 @@ def generate_mtl_texture_string(texture, textureId):
 
     output = [
 
-    '\t' + LabelString( getMtlTextureName( texture, textureId, True ) ) + ': {',
-    '	"url"    : ' + LabelString( texture ) + ',',
-    '	"repeat" : ' + Vector2String( (1,1) ) + ',',
-    '	"offset" : ' + Vector2String( (0,0) ) + ',',
-    '	"magFilter" : ' + LabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + LabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + BoolString( True ),
+    '\t' + getLabelString( getMtlTextureName( texture, textureId, True ) ) + ': {',
+    '	"url"    : ' + getLabelString( texture ) + ',',
+    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
+    '	"offset" : ' + getVector2String( (0,0) ) + ',',
+    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
+    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
+    '	"anisotropy" : ' + getBoolString( True ),
     '}'
 
     ]
@@ -801,10 +797,14 @@ def extract_fbx_vertex_normals(mesh):
                 transform = geo_transform
                 
             if transform:
+                t = FbxVector4(0,0,0,1)
+                transform.SetRow(3, t)
+
                 for i in range(len(normal_values)):
                     n = normal_values[i]
                     normal = FbxVector4(n[0], n[1], n[2])
                     normal = transform.MultNormalize(normal)
+                    normal.Normalize()
                     normal_values[i] = convert_fbx_vec3(normal)
 
         # indices
@@ -815,19 +815,31 @@ def extract_fbx_vertex_normals(mesh):
 
             for v in range(poly_size):
                 control_point_index = mesh.GetPolygonVertex(p, v)
-
+                
+                # mapping mode is by control points. The mesh should be smooth and soft.
+                # we can get normals by retrieving each control point
                 if mesh_normals.GetMappingMode() == FbxLayerElement.eByControlPoint:
+
+                    # reference mode is direct, the normal index is same as vertex index.
+                    # get normals by the index of control vertex
                     if mesh_normals.GetReferenceMode() == FbxLayerElement.eDirect:
                         poly_normals.append(control_point_index)
+
                     elif mesh_normals.GetReferenceMode() == FbxLayerElement.eIndexToDirect:
                         index = mesh_normals.GetIndexArray().GetAt(control_point_index)
                         poly_normals.append(index)
+
+                # mapping mode is by polygon-vertex.
+                # we can get normals by retrieving polygon-vertex.
                 elif mesh_normals.GetMappingMode() == FbxLayerElement.eByPolygonVertex:
+
                     if mesh_normals.GetReferenceMode() == FbxLayerElement.eDirect:
                         poly_normals.append(vertexId)
+
                     elif mesh_normals.GetReferenceMode() == FbxLayerElement.eIndexToDirect:
                         index = mesh_normals.GetIndexArray().GetAt(vertexId)
                         poly_normals.append(index)
+
                 elif mesh_normals.GetMappingMode() == FbxLayerElement.eByPolygon or \
                      mesh_normals.GetMappingMode() ==  FbxLayerElement.eAllSame or \
                      mesh_normals.GetMappingMode() ==  FbxLayerElement.eNone:       
@@ -1026,9 +1038,9 @@ def generate_mesh_string_for_scene_output(node):
     aabb_min = ",".join(str(f) for f in aabb_min)
     aabb_max = ",".join(str(f) for f in aabb_max)
 
-    vertices = ",".join(Vector3String(v, True) for v in vertices)
-    normals  = ",".join(Vector3String(v, True) for v in normal_values)
-    colors   = ",".join(Vector3String(v, True) for v in color_values)
+    vertices = ",".join(getVector3String(v, True) for v in vertices)
+    normals  = ",".join(getVector3String(v, True) for v in normal_values)
+    colors   = ",".join(getVector3String(v, True) for v in color_values)
     faces    = ",".join(faces)
     uvs      = generate_uvs(uv_values)
 
@@ -1065,7 +1077,7 @@ def generate_mesh_string_for_scene_output(node):
         nskinning_weights = len(skinning_weights) * 2
         nskinning_indices = len(skinning_indices)
 
-        bones    = ",".join(LabelString(getObjectName(b)) for b in skinning_bones)
+        bones    = ",".join(getLabelString(getObjectName(b)) for b in skinning_bones)
         weights  = ",".join(str(round(w[0],6)) for l in skinning_weights for w in l)
         indices  = ",".join(str(i) for i in skinning_indices)
 
@@ -1078,22 +1090,22 @@ def generate_mesh_string_for_scene_output(node):
     '		"normals" : ' + str(nnormals) + ',',
     '		"colors" : ' + str(ncolors) + ',',
     '		"faces" : ' + str(nfaces) + ',',
-    '		"uvs" : ' + ArrayString(nuvs),
+    '		"uvs" : ' + getArrayString(nuvs),
 
     ]
 
     skinning = [
 
-    '		"weights" : ' + ArrayString(weights) + ',',   
-    '		"indices" : ' + ArrayString(indices) + ',',   
-    '		"bones" : ' + ArrayString(bones)    
+    '		"weights" : ' + getArrayString(weights) + ',',   
+    '		"indices" : ' + getArrayString(indices) + ',',   
+    '		"bones" : ' + getArrayString(bones)    
 
     ]
 
     aabb = [
 
-    '		"min" : ' + ArrayString(aabb_min) + ',',   
-    '		"max" : ' + ArrayString(aabb_max),   
+    '		"min" : ' + getArrayString(aabb_min) + ',',   
+    '		"max" : ' + getArrayString(aabb_max),   
 
     ]
 
@@ -1103,7 +1115,7 @@ def generate_mesh_string_for_scene_output(node):
 
     output = [
 
-    '\t' + LabelString( getEmbedName( node, True ) ) + ' : {',
+    '\t' + getLabelString( getEmbedName( node, True ) ) + ' : {',
 
     '	"metadata" :',
     '	{',
@@ -1124,12 +1136,12 @@ def generate_mesh_string_for_scene_output(node):
     '',
 
     '	"scale" : ' + str( 1 ) + ',',   
-    '	"materials" : ' + ArrayString("") + ',',   
-    '	"vertices" : ' + ArrayString(vertices) + ',',   
-    '	"normals" : ' + ArrayString(normals) + ',',   
-    '	"colors" : ' + ArrayString(colors) + ',',   
-    '	"uvs" : ' + ArrayString(uvs) + ',',   
-    '	"faces" : ' + ArrayString(faces),
+    '	"materials" : ' + getArrayString("") + ',',   
+    '	"vertices" : ' + getArrayString(vertices) + ',',   
+    '	"normals" : ' + getArrayString(normals) + ',',   
+    '	"colors" : ' + getArrayString(colors) + ',',   
+    '	"uvs" : ' + getArrayString(uvs) + ',',   
+    '	"faces" : ' + getArrayString(faces),
     '}'
 
     ]
@@ -1174,9 +1186,9 @@ def generate_mesh_string_for_non_scene_output(scene):
     aabb_min = ",".join(str(f) for f in aabb_min)
     aabb_max = ",".join(str(f) for f in aabb_max)
 
-    vertices = ",".join(Vector3String(v, True) for v in vertices)
-    normals  = ",".join(Vector3String(v, True) for v in normal_values)
-    colors   = ",".join(Vector3String(v, True) for v in color_values)
+    vertices = ",".join(getVector3String(v, True) for v in vertices)
+    normals  = ",".join(getVector3String(v, True) for v in normal_values)
+    colors   = ",".join(getVector3String(v, True) for v in color_values)
     faces    = ",".join(faces)
     uvs      = generate_uvs(uv_values)
 
@@ -1191,19 +1203,19 @@ def generate_mesh_string_for_non_scene_output(scene):
     '		"normals" : ' + str(nnormals) + ',',
     '		"colors" : ' + str(ncolors) + ',',
     '		"faces" : ' + str(nfaces) + ',',
-    '		"uvs" : ' + ArrayString(nuvs),
+    '		"uvs" : ' + getArrayString(nuvs),
     '	},',
     '	"boundingBox"  : {',
-    '		"min" : ' + ArrayString(aabb_min) + ',',   
-    '		"max" : ' + ArrayString(aabb_max),   
+    '		"min" : ' + getArrayString(aabb_min) + ',',   
+    '		"max" : ' + getArrayString(aabb_max),   
     '	},',
     '	"scale" : ' + str( 1 ) + ',',   
-    '	"materials" : ' + ArrayString("") + ',',   
-    '	"vertices" : ' + ArrayString(vertices) + ',',   
-    '	"normals" : ' + ArrayString(normals) + ',',   
-    '	"colors" : ' + ArrayString(colors) + ',',   
-    '	"uvs" : ' + ArrayString(uvs) + ',',   
-    '	"faces" : ' + ArrayString(faces),
+    '	"materials" : ' + getArrayString("") + ',',   
+    '	"vertices" : ' + getArrayString(vertices) + ',',   
+    '	"normals" : ' + getArrayString(normals) + ',',   
+    '	"colors" : ' + getArrayString(colors) + ',',   
+    '	"uvs" : ' + getArrayString(uvs) + ',',   
+    '	"faces" : ' + getArrayString(faces),
     '}'
 
     ]
@@ -1424,6 +1436,14 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
     faces = []
     for mesh_index in range(len(mesh_list)):
         mesh = mesh_list[mesh_index]
+
+        flipWindingOrder = False
+        node = mesh.GetNode()
+        if node:
+            local_scale = node.EvaluateLocalScaling()
+            if local_scale[0] < 0 or local_scale[1] < 0 or local_scale[2] < 0:
+                flipWindingOrder = True
+
         poly_count = mesh.GetPolygonCount()
         control_points = mesh.GetControlPoints() 
 
@@ -1481,7 +1501,8 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
                         new_face_colors,
                         new_face_uv_layers,
                         vertex_offset,
-                        material_offset)
+                        material_offset,
+                        flipWindingOrder)
                     faces.append(face)
             else:
                 face = generate_mesh_face(mesh, 
@@ -1491,12 +1512,13 @@ def process_mesh_polygons(mesh_list, normals_to_indices, colors_to_indices, uvs_
                           face_colors,
                           face_uv_layers,
                           vertex_offset,
-                          material_offset)
+                          material_offset,
+                          flipWindingOrder)
                 faces.append(face)
 
     return faces
 
-def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_layers, vertex_offset, material_offset):
+def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_layers, vertex_offset, material_offset, flipOrder):
     isTriangle = ( len(vertex_indices) == 3 )
     nVertices = 3 if isTriangle else 4
 
@@ -1538,9 +1560,31 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
 
     faceData.append(faceType)
 
-    tmp = []
+    if flipOrder:
+        if nVertices == 3:
+            vertex_indices = [vertex_indices[0], vertex_indices[2], vertex_indices[1]]
+            if hasFaceVertexNormals:
+                normals = [normals[0], normals[2], normals[1]]
+            if hasFaceVertexColors:
+                colors = [colors[0], colors[2], colors[1]]
+            if hasFaceVertexUvs:
+                tmp = []
+                for polygon_uvs in uv_layers:
+                    tmp.append([polygon_uvs[0], polygon_uvs[2], polygon_uvs[1]])
+                uv_layers = tmp
+        else: 
+            vertex_indices = [vertex_indices[0], vertex_indices[3], vertex_indices[2], vertex_indices[1]]
+            if hasFaceVertexNormals:
+                normals = [normals[0], normals[3], normals[2], normals[1]]
+            if hasFaceVertexColors:
+                colors = [colors[0], colors[3], colors[2], colors[1]]
+            if hasFaceVertexUvs:
+                tmp = []
+                for polygon_uvs in uv_layers:
+                    tmp.append([polygon_uvs[0], polygon_uvs[3], polygon_uvs[2], polygon_uvs[3]])
+                uv_layers = tmp
+        
     for i in range(nVertices):
-        tmp.append(vertex_indices[i])
         index = vertex_indices[i] + vertex_offset
         faceData.append(index)
 
@@ -1638,9 +1682,9 @@ def generate_embed_list(scene):
 def generate_geometry_string(node):
 
     output = [
-    '\t' + LabelString( getGeometryName( node, True ) ) + ' : {',
+    '\t' + getLabelString( getGeometryName( node, True ) ) + ' : {',
     '	"type"  : "embedded",',
-    '	"id" : ' + LabelString( getEmbedName( node, True ) ),
+    '	"id" : ' + getLabelString( getEmbedName( node, True ) ),
     '}'
     ]
 
@@ -1697,12 +1741,12 @@ def generate_default_light_string(padding):
 
     output = [
 
-    '\t\t' + LabelString( 'default_light' ) + ' : {',
+    '\t\t' + getLabelString( 'default_light' ) + ' : {',
     '	"type"      : "DirectionalLight",',
     '	"color"     : ' + str(getHex(color)) + ',',
     '	"intensity" : ' + str(intensity/100.0) + ',',
-    '	"direction" : ' + Vector3String( direction ) + ',',
-    '	"target"    : ' + LabelString( getObjectName( None ) ),
+    '	"direction" : ' + getVector3String( direction ) + ',',
+    '	"target"    : ' + getLabelString( getObjectName( None ) ),
     ' }'
 
     ]
@@ -1736,23 +1780,23 @@ def generate_light_string(node, padding):
 
         output = [
 
-        '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
         '	"type"      : "DirectionalLight",',
         '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
         '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"direction" : ' + Vector3String( direction ) + ',',
-        '	"target"    : ' + LabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
+        '	"direction" : ' + getVector3String( direction ) + ',',
+        '	"target"    : ' + getLabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
         ]
 
     elif light_type == "point":
 
         output = [
 
-        '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
         '	"type"      : "PointLight",',
         '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
         '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"position"  : ' + Vector3String( position ) + ',',
+        '	"position"  : ' + getVector3String( position ) + ',',
         '	"distance"  : ' + str(light.FarAttenuationEnd.Get()) + ( ',' if node.GetChildCount() > 0 else '' )
 
         ]
@@ -1761,15 +1805,15 @@ def generate_light_string(node, padding):
 
         output = [
 
-        '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
         '	"type"      : "SpotLight",',
         '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
         '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"position"  : ' + Vector3String( position ) + ',',
+        '	"position"  : ' + getVector3String( position ) + ',',
         '	"distance"  : ' + str(light.FarAttenuationEnd.Get()) + ',',
         '	"angle"     : ' + str((light.OuterAngle.Get()*math.pi)/180) + ',',
         '	"exponent"  : ' + str(light.DecayType.Get()) + ',',
-        '	"target"    : ' + LabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
+        '	"target"    : ' + getLabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
 
         ]
 
@@ -1786,7 +1830,7 @@ def generate_ambient_light_string(scene):
 
     output = [
 
-    '\t\t' + LabelString( "AmbientLight" ) + ' : {',
+    '\t\t' + getLabelString( "AmbientLight" ) + ' : {',
     '	"type"  : "AmbientLight",',
     '	"color" : ' + str(getHex(ambient_color)),
     '}'
@@ -1806,12 +1850,12 @@ def generate_default_camera_string(padding):
 
     output = [
 
-    '\t\t' + LabelString( 'default_camera' ) + ' : {',
+    '\t\t' + getLabelString( 'default_camera' ) + ' : {',
     '	"type"     : "PerspectiveCamera",',
     '	"fov"      : ' + str(fov) + ',',
     '	"near"     : ' + str(near) + ',',
     '	"far"      : ' + str(far) + ',',
-    '	"position" : ' + Vector3String( position ), 
+    '	"position" : ' + getVector3String( position ), 
     ' }'
 
     ]
@@ -1846,13 +1890,13 @@ def generate_camera_string(node, padding):
 
         output = [
 
-        '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
         '	"type"     : "PerspectiveCamera",',
         '	"fov"      : ' + str(fov) + ',',
         '	"aspect"   : ' + str(aspect) + ',',
         '	"near"     : ' + str(near) + ',',
         '	"far"      : ' + str(far) + ',',
-        '	"position" : ' + Vector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
+        '	"position" : ' + getVector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
 
         ]
 
@@ -1865,7 +1909,7 @@ def generate_camera_string(node, padding):
 
         output = [
 
-        '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
+        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
         '	"type"     : "OrthographicCamera",',
         '	"left"     : ' + left + ',',
         '	"right"    : ' + right + ',',
@@ -1873,7 +1917,7 @@ def generate_camera_string(node, padding):
         '	"bottom"   : ' + bottom + ',',
         '	"near"     : ' + str(near) + ',',
         '	"far"      : ' + str(far) + ',',
-        '	"position" : ' + Vector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
+        '	"position" : ' + getVector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
 
         ]
 
@@ -1915,13 +1959,13 @@ def generate_mesh_object_string(node, padding):
 
     output = [
 
-    '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
-    '	"geometry" : ' + LabelString( getGeometryName( node, True ) ) + ',',
-    '	"material" : ' + LabelString( material_name ) + ',',
-    '	"position" : ' + Vector3String( position ) + ',',
-    '	"quaternion" : ' + Vector4String( quaternion ) + ',',
-    '	"scale"	   : ' + Vector3String( scale ) + ',',
-    '	"skin"	 : ' + BoolString( skin_count > 0 ) + ',',
+    '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
+    '	"geometry" : ' + getLabelString( getGeometryName( node, True ) ) + ',',
+    '	"material" : ' + getLabelString( material_name ) + ',',
+    '	"position" : ' + getVector3String( position ) + ',',
+    '	"quaternion" : ' + getVector4String( quaternion ) + ',',
+    '	"scale"	   : ' + getVector3String( scale ) + ',',
+    '	"skin"	 : ' + getBoolString( skin_count > 0 ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
 
     ]
@@ -1950,11 +1994,11 @@ def generate_object_string(node, padding):
 
     output = [
 
-    '\t\t' + LabelString( getObjectName( node ) ) + ' : {',
-    '	"fbx_type" : ' + LabelString( node_type ) + ',',
-    '	"position" : ' + Vector3String( position ) + ',',
-    '	"quaternion" : ' + Vector4String( quaternion ) + ',',
-    '	"scale"	   : ' + Vector3String( scale ) + ',',
+    '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
+    '	"fbx_type" : ' + getLabelString( node_type ) + ',',
+    '	"position" : ' + getVector3String( position ) + ',',
+    '	"quaternion" : ' + getVector4String( quaternion ) + ',',
+    '	"scale"	   : ' + getVector3String( scale ) + ',',
     '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
 
     ]
@@ -1990,13 +2034,13 @@ def generate_object_hierarchy(node, object_list, pad, siblings_left):
             object_count += 1
 
     if node.GetChildCount() > 0:
-      object_list.append( PaddingString( pad + 1 ) + '\t\t"children" : {\n' )
+      object_list.append( getPaddingString( pad + 1 ) + '\t\t"children" : {\n' )
 
       for i in range(node.GetChildCount()):
           object_count += generate_object_hierarchy(node.GetChild(i), object_list, pad + 2, node.GetChildCount() - i - 1)
 
-      object_list.append( PaddingString( pad + 1 ) + '\t\t}' )
-    object_list.append( PaddingString( pad ) + '\t\t}' + (',\n' if siblings_left > 0 else ''))
+      object_list.append( getPaddingString( pad + 1 ) + '\t\t}' )
+    object_list.append( getPaddingString( pad ) + '\t\t}' + (',\n' if siblings_left > 0 else ''))
 
     return object_count
 
@@ -2061,10 +2105,10 @@ def generate_pose_node_string(pose, node_index, padding):
 
     output = [
 
-    LabelString( getObjectName( node ) ) + ' : {',
-    '	"position" : ' + Vector3String( t, False, True ) + ',',
-    '	"quaternion" : ' + Vector4String( q, False, True ) + ',',
-    '	"scale"	   : ' + Vector3String( sc, False, True ),
+    getLabelString( getObjectName( node ) ) + ' : {',
+    '	"position" : ' + getVector3String( t, False, True ) + ',',
+    '	"quaternion" : ' + getVector4String( q, False, True ) + ',',
+    '	"scale"	   : ' + getVector3String( sc, False, True ),
     '}'
 
     ]
@@ -2116,7 +2160,7 @@ def generate_animation_key_time_list(curve_node):
 
 def generate_keyframe_string(key_list, index, channel_size, padding):
     if index % (channel_size + 1) == 0:
-        return '\n' + PaddingString(padding) + str(round(key_list[index], 6))
+        return '\n' + getPaddingString(padding) + str(round(key_list[index], 6))
     else:
         return str(round(key_list[index], 6))
 
@@ -2125,11 +2169,11 @@ def generate_curve_node_string(node, curve_node, property_name, key_list, channe
 
     output = [
 
-    '\t' + LabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
-    '	"object" : ' + LabelString( getObjectName( node ) ) + ',',
-    '	"property" : ' + LabelString( property_name ) + ',',
+    '\t' + getLabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
+    '	"object" : ' + getLabelString( getObjectName( node ) ) + ',',
+    '	"property" : ' + getLabelString( property_name ) + ',',
     '	"channels" : ' + str( channel_count ) + ',',
-    '	"keys" : ' + ArrayString( keys ),
+    '	"keys" : ' + getArrayString( keys ),
     '}'
 
     ]
@@ -2258,10 +2302,10 @@ def generate_animation_layer_string(layer, scene):
         curve_list.append(curve_string)
         
     output = [
-    '\t' + LabelString( getAnimationLayerName( layer, True ) ) + ' : {',
-    '	"blendMode" : ' + LabelString( blend_mode ) + ',',
+    '\t' + getLabelString( getAnimationLayerName( layer, True ) ) + ' : {',
+    '	"blendMode" : ' + getLabelString( blend_mode ) + ',',
     '	"blendWeight" : ' + str( layer.Weight.Get() / 100 ) + ',',
-    '	"curves" : ' + ArrayString( ",".join(LabelString( c ) for c in curve_list) ),
+    '	"curves" : ' + getArrayString( ",".join(getLabelString( c ) for c in curve_list) ),
     '}'
     ]
 
@@ -2290,10 +2334,10 @@ def generate_animation_string(animation, scene):
         layer_list.append(layer_string)
 
     output = [
-    '\t' + LabelString( getAnimationName( animation ) ) + ' : {',
+    '\t' + getLabelString( getAnimationName( animation ) ) + ' : {',
     '	"start" : ' + str( start_time.GetSecondDouble() ) + ',',
     '	"stop" : ' + str( stop_time.GetSecondDouble() ) + ',',
-    '	"layers" : ' + ArrayString( ",".join(LabelString( l ) for l in layer_list) ),
+    '	"layers" : ' + getArrayString( ",".join(getLabelString( l ) for l in layer_list) ),
     '}'
     ]
 
@@ -2439,27 +2483,26 @@ def extract_scene(scene, filename):
     nmaterials = len(materials)
     ngeometries = len(geometries)
 
-    #TODO: extract actual root/scene data here
-    position = Vector3String( (0,0,0) )
-    rotation = Vector3String( (0,0,0) )
-    scale    = Vector3String( (1,1,1) )
+    position = getVector3String( (0,0,0) )
+    rotation = getVector3String( (0,0,0) )
+    scale    = getVector3String( (1,1,1) )
 
     camera_names = generate_camera_name_list(scene)
     scene_settings = scene.GetGlobalSettings()
 
     #TODO: this might exist as part of the FBX spec
-    bgcolor = Vector3String( (0.667,0.667,0.667) )
+    bgcolor = getVector3String( (0.667,0.667,0.667) )
     bgalpha = 1
 
     # This does not seem to be any help here
     # global_settings.GetDefaultCamera() 
 
-    defcamera = LabelString(camera_names[0] if len(camera_names) > 0 else "")
+    defcamera = getLabelString(camera_names[0] if len(camera_names) > 0 else "")
     if option_default_camera:
-      defcamera = LabelString('default_camera')
+      defcamera = getLabelString('default_camera')
 
     #TODO: extract fog info from scene
-    deffog = LabelString("")
+    deffog = getLabelString("")
 
     poses = ""
     animation_takes = ""
@@ -2617,7 +2660,7 @@ def findFilesWithExt(directory, ext, include_path = True):
     return found
             
 # #####################################################
-# Parse - Wavefront MLT 
+# Parse - Wavefront MTL 
 # #####################################################
 def parseMtlFile(filepath, textures):
     global mtl_texture_count
@@ -2740,12 +2783,13 @@ if __name__ == "__main__":
     parser = OptionParser(usage=usage)
 
     parser.add_option('-t', '--triangulate', action='store_true', dest='triangulate', help="force quad geometry into triangles", default=False)
-    parser.add_option('-x', '--no-textures', action='store_true', dest='notextures', help="don't include texture references in output file", default=False)
-    parser.add_option('-p', '--prefix', action='store_true', dest='prefix', help="prefix object names in output file", default=False)
-    parser.add_option('-g', '--geometry-only', action='store_true', dest='geometry', help="output geometry only", default=False)
-    parser.add_option('-a', '--animation', action='store_true', dest='animation', help="export animation data", default=False)
-    parser.add_option('-c', '--default-camera', action='store_true', dest='defcamera', help="include default camera in output scene", default=False)
-    parser.add_option('-l', '--defualt-light', action='store_true', dest='deflight', help="include default light in output scene", default=False)
+    parser.add_option('-x', '--ignore-textures', action='store_true', dest='notextures', help="don't include texture references in output file", default=False)
+    parser.add_option('-p', '--force-prefix', action='store_true', dest='prefix', help="prefix all object names in output file", default=False)
+    parser.add_option('-f', '--flatten-scene', action='store_true', dest='geometry', help="merge all geometries and apply node transforms", default=False)
+    parser.add_option('-a', '--include-animations', action='store_true', dest='animation', help="include animation data in output file", default=False)
+    parser.add_option('-m', '--manual-mtl-parse', action='store_true', dest='mtl', help="the fbx sdk may fail to bind all textures for materials, parse .mtl files manually", default=False)
+    parser.add_option('-c', '--add-camera', action='store_true', dest='defcamera', help="include default camera in output scene", default=False)
+    parser.add_option('-l', '--add-light', action='store_true', dest='deflight', help="include default light in output scene", default=False)
 
     (options, args) = parser.parse_args()
 
@@ -2756,6 +2800,7 @@ if __name__ == "__main__":
     option_default_camera = options.defcamera 
     option_default_light = options.deflight 
     option_animation = options.animation 
+    option_parse_mtl = options.mtl 
 
     # Prepare the FBX SDK.
     sdk_manager, scene = InitializeSdkObjects()
@@ -2779,11 +2824,12 @@ if __name__ == "__main__":
         axis_system = FbxAxisSystem.MayaYUp
         axis_system.ConvertScene(scene)
             
-        # The FBX SDK does not bind all textures in .mtl files, so we have to do it manually
-        if os.path.splitext(args[0])[1].lower() == '.obj':
-            mtl_library = parseAllMtlFiles(os.path.dirname(args[0]))
-        else:
-            mtl_library = []
+        if option_parse_mtl:
+            # The FBX SDK does not bind all textures in .mtl files, so we have to do it manually
+            if os.path.splitext(args[0])[1].lower() == '.obj':
+                mtl_library = parseAllMtlFiles(os.path.dirname(args[0]))
+            else:
+                mtl_library = []
 
         if option_geometry:
             output_content = extract_geometry(scene, os.path.basename(args[0]))
