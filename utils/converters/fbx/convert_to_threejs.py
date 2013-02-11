@@ -1051,8 +1051,7 @@ def generate_mesh_string_for_scene_output(node):
     nskinning_weights = 0
     nskinning_indices = 0
 
-    if option_animation:
-
+    if option_animation: 
         skinning_weights = process_mesh_skin_weights(mesh_list)
         skinning_indices = []
 
@@ -2824,6 +2823,10 @@ if __name__ == "__main__":
         axis_system = FbxAxisSystem.MayaYUp
         axis_system.ConvertScene(scene)
             
+        if option_animation:
+            if scene.GetSrcObjectCount(FbxSkin.ClassId) <= 0:
+                option_animation = False
+
         if option_parse_mtl:
             # The FBX SDK does not bind all textures in .mtl files, so we have to do it manually
             if os.path.splitext(args[0])[1].lower() == '.obj':
