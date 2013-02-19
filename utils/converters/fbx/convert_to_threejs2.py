@@ -42,6 +42,20 @@ class CustomEncoder(json.JSONEncoder):
 # #####################################################
 # Templates
 # #####################################################
+def getVector2(v, round_vector = False):
+    # FbxVector2 is not JSON serializable
+    # JSON does not support NaN or Inf
+    if math.isnan(v[0]) or math.isinf(v[0]):
+        v[0] = 0
+    if math.isnan(v[1]) or math.isinf(v[1]):
+        v[1] = 0
+    if round_vector or option_pretty_print:
+        v = (round(v[0], 5), round(v[1], 5))
+    if option_pretty_print:
+        return NoIndent([v[0], v[1]])
+    else:
+        return [v[0], v[1]]
+
 def getVector3(v, round_vector = False):
     # FbxVector3 is not JSON serializable
     # JSON does not support NaN or Inf
@@ -595,7 +609,7 @@ def generate_material_list(scene):
 # #####################################################
 # Generate - Texture String 
 # #####################################################
-def generate_texture_string(texture):
+def generate_texture_object(texture):
 
     #TODO: extract more texture properties
     wrap_u = texture.GetWrapModeU()
@@ -607,41 +621,38 @@ def generate_texture_string(texture):
     else:
         url = getTextureName( texture )
 
-    output = [
+    output = {
 
-    '\t' + getLabelString( getTextureName( texture, True ) ) + ': {',
-    '	"url"    : ' + getLabelString( url ) + ',',
-    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
-    '	"offset" : ' + getVector2String( texture.GetUVTranslation() ) + ',',
-    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + getBoolString( True ),
-    '}'
+      'url': url,
+      'repeat': getVector2( (1,1) ),
+      'offset': getVector2( texture.GetUVTranslation() ),
+      'magFilter': 'LinearFilter',
+      'minFilter': 'LinearMipMapLinearFilter',
+      'anisotropy': True
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_mtl_texture_string(texture, textureId):
+def generate_mtl_texture_object(texture):
 
-    output = [
+    output = {
 
-    '\t' + getLabelString( getMtlTextureName( texture, textureId, True ) ) + ': {',
-    '	"url"    : ' + getLabelString( texture ) + ',',
-    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
-    '	"offset" : ' + getVector2String( (0,0) ) + ',',
-    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + getBoolString( True ),
-    '}'
+      'url': texture,
+      'repeat': getVector2( (1,1) ),
+      'offset': getVector2( (0,0) ),
+      'magFilter': 'LinearFilter',
+      'minFilter': 'LinearMipMapLinearFilter',
+      'anisotropy': True
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
+
 # #####################################################
 # Parse - Textures 
 # #####################################################
-def extract_material_textures(material_property, texture_list):
+def extract_material_textures(material_property, texture_dict):
     if material_property.IsValid():
         #Here we have to check if it's layeredtextures, or just textures:
         layered_texture_count = material_property.GetSrcObjectCount(FbxLayeredTexture.ClassId)
@@ -652,18 +663,21 @@ def extract_material_textures(material_property, texture_list):
                 for k in range(texture_count):
                     texture = layered_texture.GetSrcObject(FbxTexture.ClassId,k)
                     if texture:
-                        texture_string = generate_texture_string(texture)
-                        texture_list.append(texture_string)
+                        texture_object = generate_texture_object(texture)
+                        texture_name = getTextureName( texture, True )
+                        print texture_name
+                        texture_dict[texture_name] = texture_object
         else:
             # no layered texture simply get on the property
             texture_count = material_property.GetSrcObjectCount(FbxTexture.ClassId)
             for j in range(texture_count):
                 texture = material_property.GetSrcObject(FbxTexture.ClassId,j)
                 if texture:
-                    texture_string = generate_texture_string(texture)
-                    texture_list.append(texture_string)
+                    texture_object = generate_texture_object(texture)
+                    texture_name = getTextureName( texture, True )
+                    texture_dict[texture_name] = texture_object
 
-def extract_textures_from_node(node, texture_list):
+def extract_textures_from_node(node, texture_dict):
     name = node.GetName()
     mesh = node.GetNodeAttribute()
     
@@ -679,7 +693,7 @@ def extract_textures_from_node(node, texture_list):
                 texture_count = FbxLayerElement.sTypeTextureCount()
                 for texture_index in range(texture_count):
                     material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-                    extract_material_textures(material_property, texture_list)
+                    extract_material_textures(material_property, texture_dict)
 
             else:
 
@@ -688,49 +702,49 @@ def extract_textures_from_node(node, texture_list):
                         if 'AmbientColor' in mtl_material:
                             texture_name = mtl_material['AmbientColor'] 
                             texture_id = mtl_material['AmbientColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['AmbientColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'DiffuseColor' in mtl_material:
                             texture_name = mtl_material['DiffuseColor'] 
                             texture_id = mtl_material['DiffuseColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['DiffuseColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'SpecularColor' in mtl_material:
                             texture_name = mtl_material['SpecularColor'] 
                             texture_id = mtl_material['SpecularColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['SpecularColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'Bump' in mtl_material:
                             texture_name = mtl_material['Bump'] 
                             texture_id = mtl_material['BumpId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['Bump'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         break
 
-def generate_textures_from_hierarchy(node, texture_list):
+def generate_textures_from_hierarchy(node, texture_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            extract_textures_from_node(node, texture_list)
+            extract_textures_from_node(node, texture_dict)
     for i in range(node.GetChildCount()):
-        generate_textures_from_hierarchy(node.GetChild(i), texture_list)
+        generate_textures_from_hierarchy(node.GetChild(i), texture_dict)
 
-def generate_texture_list(scene):
+def generate_texture_dict(scene):
     if not option_textures:
-        return []
+        return {}
 
-    texture_list = []
+    texture_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_textures_from_hierarchy(node.GetChild(i), texture_list)
-    return texture_list
+            generate_textures_from_hierarchy(node.GetChild(i), texture_dict)
+    return texture_dict
 
 # #####################################################
 # Extract - Fbx Mesh data
@@ -2065,13 +2079,14 @@ def generate_object_hierarchy(node, object_dict):
     for i in range(node.GetChildCount()):
         object_count += generate_object_hierarchy(node.GetChild(i), object_children)
 
-    if option_pretty_print:
-        # Having 'children' above other attributes is annoying, send it to the bottom 
-        # using the last letter of the alphabet 'z'. This letter is removed from the 
-        # final output
-        object_data['zchildren'] = object_children
-    else:
-        object_data['children'] = object_children
+    if node.GetChildCount() > 0:
+        # Having 'children' above other attributes is hard to read.
+        # We can send it to the bottom using the last letter of the alphabet 'z'. 
+        # This letter is removed from the final output.
+        if option_pretty_print:
+            object_data['zchildren'] = object_children
+        else:
+            object_data['children'] = object_children
 
     object_dict[object_name] = object_data
 
@@ -2500,8 +2515,9 @@ def extract_scene(scene, filename):
     global_settings = scene.GetGlobalSettings()
     objects, nobjects = generate_scene_objects(scene)
 
+    textures = generate_texture_dict(scene)
+
     materials = generate_material_list(scene)
-    textures = generate_texture_list(scene)
     geometries = generate_geometry_list(scene)
     embeds = generate_embed_list(scene)
     fogs = []
@@ -2543,7 +2559,6 @@ def extract_scene(scene, filename):
 
     geometries = generateMultiLineString( geometries, ",\n\n\t", 0 )
     materials = generateMultiLineString( materials, ",\n\n\t", 0 )
-    textures = generateMultiLineString( textures, ",\n\n\t", 0 )
     embeds = generateMultiLineString( embeds, ",\n\n\t", 0 )
     fogs = generateMultiLineString( fogs, ",\n\n\t", 0 )
 
@@ -2568,19 +2583,22 @@ def extract_scene(scene, filename):
       'objects': objects,
      #'geometries': geometries,
      #'materials': materials,
-     #'textures': textures,
+      'textures': textures,
      #'embeds': embeds,
      #'poses': poses,
      #'animation': animation,
      #'embeds': embeds,
     }
 
-
     if option_pretty_print:
-        output_string = json.dumps(output, indent=2, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
+        output_string = json.dumps(output, indent=4, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
+        # turn array strings into arrays
         output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
+        # replace 'zchildren' with children
         output_string = re.sub('zchildren', r'children', output_string)
-        output_string = re.sub('{\s*\n', r'{\n\n', output_string)
+        # add an extra newline after '"children": {'
+        output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
+        # add an extra newline after '},'
         output_string = re.sub('},\s*\n', r'},\n\n', output_string)
     else:
         output_string = json.dumps(output)
