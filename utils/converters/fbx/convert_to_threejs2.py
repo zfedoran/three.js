@@ -2134,8 +2134,7 @@ def get_local_pose_transform(pose, node_index):
     else:
         return pose.GetMatrix(node_index)
 
-def generate_pose_node_string(pose, node_index, padding):
-    node = pose.GetNode(node_index)
+def generate_pose_node_object(pose, node_index):
     transform = get_local_pose_transform(pose, node_index)
 
     t = FbxVector4()
@@ -2145,30 +2144,26 @@ def generate_pose_node_string(pose, node_index, padding):
 
     sign = transform.GetElements(t, q, sh, sc)
 
-    output = [
+    output = {
 
-    getLabelString( getObjectName( node ) ) + ' : {',
-    '	"position" : ' + getVector3String( t, False, True ) + ',',
-    '	"quaternion" : ' + getVector4String( q, False, True ) + ',',
-    '	"scale"	   : ' + getVector3String( sc, False, True ),
-    '}'
+      'position': getVector3( t, True ),
+      'quaternion': getVector4( q, True ),
+      'scale': getVector3( sc, True )
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
-def generate_pose_string(pose, padding):
-    node_list = []
+def generate_pose_object(pose):
+    node_dict = {}
 
     for n in range(pose.GetCount()):
-        pose_node = generate_pose_node_string(pose, n, 1)
-        node_list.append(pose_node)
+        node = pose.GetNode(n)
+        pose_node = generate_pose_node_object(pose, n)
+        pose_name = getObjectName(node)
+        node_dict[pose_name] = pose_node
 
-    pose_nodes = generateMultiLineString( node_list, ',\n\t\t', padding )
-      
-    output = [ '\t{', pose_nodes, '}', ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return node_dict
 
 def generate_pose_list(scene):
     pose_list = []
@@ -2176,7 +2171,7 @@ def generate_pose_list(scene):
     for p in range(scene.GetPoseCount()):
         pose = scene.GetPose(p)
 
-        pose_string = generate_pose_string(pose, 0)
+        pose_string = generate_pose_object(pose)
         pose_list.append(pose_string)
 
     return pose_list
@@ -2540,13 +2535,12 @@ def extract_scene(scene, filename):
     if option_default_camera:
       defcamera = getLabelString('default_camera')
 
-    poses = ""
+    poses = []
     animation_takes = ""
     animation_layers = ""
     animation_curves = ""
     if option_animation:
-        pose_list = generate_pose_list( scene )
-        poses = generateMultiLineString( pose_list, ",\n\n\t", 0 )
+        poses = generate_pose_list( scene )
 
         animation_take_list = generate_animation_list( scene )
         animation_takes = generateMultiLineString( animation_take_list, ",\n\n\t", 0 )
@@ -2585,7 +2579,7 @@ def extract_scene(scene, filename):
      #'materials': materials,
       'textures': textures,
      #'embeds': embeds,
-     #'poses': poses,
+      'poses': poses,
      #'animation': animation,
      #'embeds': embeds,
     }
