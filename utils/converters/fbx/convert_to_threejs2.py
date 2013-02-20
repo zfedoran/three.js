@@ -1736,35 +1736,34 @@ def generate_embed_list(scene):
 # #####################################################
 # Generate - Geometries 
 # #####################################################
-def generate_geometry_string(node):
+def generate_geometry_object(node):
 
-    output = [
-    '\t' + getLabelString( getGeometryName( node, True ) ) + ' : {',
-    '	"type"  : "embedded",',
-    '	"id" : ' + getLabelString( getEmbedName( node, True ) ),
-    '}'
-    ]
+    output = {
+      'type' : 'embedded',
+      'id' : getEmbedName( node, True )
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_geometry_list_from_hierarchy(node, geometry_list):
+def generate_geometry_dict_from_hierarchy(node, geometry_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            geometry_string = generate_geometry_string(node)
-            geometry_list.append(geometry_string)
+            geometry_object = generate_geometry_object(node)
+            geometry_name = getGeometryName( node, True )
+            geometry_dict[geometry_name] = geometry_object
     for i in range(node.GetChildCount()):
-        generate_geometry_list_from_hierarchy(node.GetChild(i), geometry_list)
+        generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
 
-def generate_geometry_list(scene):
-    geometry_list = []
+def generate_geometry_dict(scene):
+    geometry_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_geometry_list_from_hierarchy(node.GetChild(i), geometry_list)
-    return geometry_list
+            generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
+    return geometry_dict
 
 # #####################################################
 # Generate - Camera Names
@@ -2522,8 +2521,8 @@ def extract_scene(scene, filename):
 
     textures = generate_texture_dict(scene)
     materials = generate_material_dict(scene)
+    geometries = generate_geometry_dict(scene)
 
-    geometries = generate_geometry_list(scene)
     embeds = generate_embed_list(scene)
     fogs = []
 
@@ -2561,7 +2560,6 @@ def extract_scene(scene, filename):
         animation_curve_list = generate_animation_curve_list( scene )
         animation_curves = generateMultiLineString( animation_curve_list, ",\n\n\t", 0 )
 
-    geometries = generateMultiLineString( geometries, ",\n\n\t", 0 )
     embeds = generateMultiLineString( embeds, ",\n\n\t", 0 )
     fogs = generateMultiLineString( fogs, ",\n\n\t", 0 )
 
@@ -2583,7 +2581,7 @@ def extract_scene(scene, filename):
 
     output = {
       'objects': objects,
-     #'geometries': geometries,
+      'geometries': geometries,
       'materials': materials,
       'textures': textures,
      #'embeds': embeds,
