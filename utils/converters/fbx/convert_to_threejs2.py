@@ -35,7 +35,10 @@ class NoIndent(object):
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, NoIndent):
-            return '[ %s ]' % ', '.join(str(f) for f in obj.value)
+            if obj.value:
+                return '[ %s ]' % ', '.join(str(f) for f in obj.value)
+            else:
+                return obj.value
         else:
             return json.JSONEncoder.default(self, obj)
 
@@ -300,10 +303,16 @@ def convert_fbx_vec3(v):
 def generate_uvs(uv_layers):
     layers = []
     for uvs in uv_layers:
-        layer = ",".join(getVector2String(n, True) for n in uvs)
+        tmp = []
+        for uv in uvs:
+            tmp.append(uv[0])
+            tmp.append(uv[1])
+        if option_pretty_print:
+            layer = NoIndent(tmp)
+        else:
+            layer = tmp
         layers.append(layer)
-
-    return ",".join("[%s]" % n for n in layers)
+    return layers
 
 def generateMultiLineString(lines, separator, padding):
     cleanLines = []
@@ -1082,6 +1091,9 @@ def generate_mesh_string_for_scene_output(node):
                 vertex_offsets, 
                 material_offsets)
 
+    aabb_min, aabb_max = generate_bounding_box(vertices)
+
+    # generate counts for uvs, vertices, normals, colors, and faces
     nuvs = []
     for layer_index, uvs in enumerate(uv_values):
         nuvs.append(str(len(uvs)))
@@ -1090,30 +1102,19 @@ def generate_mesh_string_for_scene_output(node):
     nnormals = len(normal_values)
     ncolors = len(color_values)
     nfaces = len(faces)
-    nuvs = ",".join(nuvs)
-    
-    aabb_min, aabb_max = generate_bounding_box(vertices)
-    aabb_min = ",".join(str(f) for f in aabb_min)
-    aabb_max = ",".join(str(f) for f in aabb_max)
 
-    vertices = ",".join(getVector3String(v, True) for v in vertices)
-    normals  = ",".join(getVector3String(v, True) for v in normal_values)
-    colors   = ",".join(getVector3String(v, True) for v in color_values)
-    faces    = ",".join(faces)
-    uvs      = generate_uvs(uv_values)
-
-    bones   = ""
-    weights = ""
-    indices = ""
     nskinning_bones   = 0
     nskinning_weights = 0
     nskinning_indices = 0
 
+    bones   = []
+    weights = []
+    indices = []
+
+    # get skinning data
     if option_animation: 
         skinning_weights = process_mesh_skin_weights(mesh_list)
         skinning_indices = []
-
-        #TODO: merge skeletons when len(mesh_list) > 0
         skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list[0])
 
         for i in range(len(skinning_weights)):
@@ -1134,76 +1135,69 @@ def generate_mesh_string_for_scene_output(node):
         nskinning_weights = len(skinning_weights) * 2
         nskinning_indices = len(skinning_indices)
 
-        bones    = ",".join(getLabelString(getObjectName(b)) for b in skinning_bones)
-        weights  = ",".join(str(round(w[0],6)) for l in skinning_weights for w in l)
-        indices  = ",".join(str(i) for i in skinning_indices)
+        bones = [getObjectName(b) for b in skinning_bones]
+        weights = [round(w[0],6) for l in skinning_weights for w in l]
+        indices  = skinning_indices
 
-    metadata = [
+    # flatten arrays
+    uv_values = generate_uvs(uv_values)
+    vertices = [val for v in vertices for val in v]
+    normal_values = [val for n in normal_values for val in n]
+    color_values = [val for c in color_values for val in c]
+    faces = [val for f in faces for val in f]
 
-    '		"vertices" : ' + str(nvertices) + ',',
-    '		"skinWeights" : ' + str(nskinning_weights) + ',',
-    '		"skinIndices" : ' + str(nskinning_indices) + ',',
-    '		"skinBones" : ' + str(nskinning_bones) + ',',
-    '		"normals" : ' + str(nnormals) + ',',
-    '		"colors" : ' + str(ncolors) + ',',
-    '		"faces" : ' + str(nfaces) + ',',
-    '		"uvs" : ' + getArrayString(nuvs),
+    # disable json indenting when pretty printing for the arrays
+    if option_pretty_print:
+        nuvs = NoIndent(nuvs)
+        weights = NoIndent(weights)
+        indices = NoIndent(indices)
+        aabb_min = NoIndent(aabb_min)
+        aabb_max = NoIndent(aabb_max)
+        vertices = NoIndent(vertices)
+        normal_values = NoIndent(normal_values)
+        color_values = NoIndent(color_values)
+        faces = NoIndent(faces)
+  
+    metadata = {
+      'vertices' : nvertices,
+      'skinWeights' : nskinning_weights,
+      'skinIndices' : nskinning_indices,
+      'skinBones' : nskinning_bones,
+      'normals' : nnormals,
+      'colors' : ncolors,
+      'faces' : nfaces,
+      'uvs' : nuvs
+    }
 
-    ]
+    skinning = {
+      'weights' : weights,
+      'indices' : indices,
+      'bones' : bones,
+    }
 
-    skinning = [
+    aabb = {
+      'min' : aabb_min,
+      'max' : aabb_max
+    }
 
-    '		"weights" : ' + getArrayString(weights) + ',',   
-    '		"indices" : ' + getArrayString(indices) + ',',   
-    '		"bones" : ' + getArrayString(bones)    
+    output = {
+      'boundingBox' : aabb,
+      'scale' : 1,
+      'materials' : [],
+      'skinning' : skinning,
+      'vertices' : vertices,
+      'normals' : normal_values,
+      'colors' : color_values,
+      'uvs' : uv_values,
+      'faces' : faces
+    }
 
-    ]
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
 
-    aabb = [
-
-    '		"min" : ' + getArrayString(aabb_min) + ',',   
-    '		"max" : ' + getArrayString(aabb_max),   
-
-    ]
-
-    metadata = generateMultiLineString( metadata, '\n\t\t', 0 )
-    skinning = generateMultiLineString( skinning, '\n\t\t', 0 )
-    aabb = generateMultiLineString( aabb, '\n\t\t', 0 )
-
-    output = [
-
-    '\t' + getLabelString( getEmbedName( node, True ) ) + ' : {',
-
-    '	"metadata" :',
-    '	{',
-    metadata,
-    '	},',
-    '',
-
-    '	"boundingBox" :',
-    '	{',
-    aabb,
-    '	},',
-    '',
-
-    '	"skinning" :',
-    '	{',
-    skinning,
-    '	},',
-    '',
-
-    '	"scale" : ' + str( 1 ) + ',',   
-    '	"materials" : ' + getArrayString("") + ',',   
-    '	"vertices" : ' + getArrayString(vertices) + ',',   
-    '	"normals" : ' + getArrayString(normals) + ',',   
-    '	"colors" : ' + getArrayString(colors) + ',',   
-    '	"uvs" : ' + getArrayString(uvs) + ',',   
-    '	"faces" : ' + getArrayString(faces),
-    '}'
-
-    ]
-    
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
 # #####################################################
 # Generate - Mesh String (for non-scene output) 
@@ -1671,7 +1665,7 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
             index = colors[i]
             faceData.append(index)
 
-    return ",".join( map(str, faceData) ) 
+    return faceData 
 
 
 # #####################################################
@@ -1706,7 +1700,7 @@ def generate_mesh_list(scene):
 # #####################################################
 # Generate - Embeds 
 # #####################################################
-def generate_embed_list_from_hierarchy(node, embed_list):
+def generate_embed_dict_from_hierarchy(node, embed_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
@@ -1719,19 +1713,20 @@ def generate_embed_list_from_hierarchy(node, embed_list):
             if attribute_type != FbxNodeAttribute.eMesh:
                 converter.TriangulateInPlace(node);
 
-            embed_string = generate_mesh_string_for_scene_output(node)
-            embed_list.append(embed_string)
+            embed_object = generate_mesh_string_for_scene_output(node)
+            embed_name = getEmbedName(node, True)
+            embed_dict[embed_name] = embed_object
 
     for i in range(node.GetChildCount()):
-        generate_embed_list_from_hierarchy(node.GetChild(i), embed_list)
+        generate_embed_dict_from_hierarchy(node.GetChild(i), embed_dict)
 
-def generate_embed_list(scene):
-    embed_list = []
+def generate_embed_dict(scene):
+    embed_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_embed_list_from_hierarchy(node.GetChild(i), embed_list)
-    return embed_list
+            generate_embed_dict_from_hierarchy(node.GetChild(i), embed_dict)
+    return embed_dict
 
 # #####################################################
 # Generate - Geometries 
@@ -2522,9 +2517,7 @@ def extract_scene(scene, filename):
     textures = generate_texture_dict(scene)
     materials = generate_material_dict(scene)
     geometries = generate_geometry_dict(scene)
-
-    embeds = generate_embed_list(scene)
-    fogs = []
+    embeds = generate_embed_dict(scene)
 
     ntextures = len(textures)
     nmaterials = len(materials)
@@ -2560,9 +2553,6 @@ def extract_scene(scene, filename):
         animation_curve_list = generate_animation_curve_list( scene )
         animation_curves = generateMultiLineString( animation_curve_list, ",\n\n\t", 0 )
 
-    embeds = generateMultiLineString( embeds, ",\n\n\t", 0 )
-    fogs = generateMultiLineString( fogs, ",\n\n\t", 0 )
-
     animation = {
       'takes' : animation_takes,
       'layers' : animation_layers,
@@ -2584,10 +2574,9 @@ def extract_scene(scene, filename):
       'geometries': geometries,
       'materials': materials,
       'textures': textures,
-     #'embeds': embeds,
+      'embeds': embeds,
       'poses': poses,
      #'animation': animation,
-     #'embeds': embeds,
     }
 
     if option_pretty_print:
@@ -2599,6 +2588,7 @@ def extract_scene(scene, filename):
         output_string = json.dumps(output, indent=4, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
         # turn array strings into arrays
         output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
+        output_string = re.sub('(\n\s*)\"(\[.*\])\"', r'\1\2', output_string)
         # replace '0metadata' with metadata
         output_string = re.sub('0metadata', r'metadata', output_string)
         # replace 'zchildren' with children
@@ -2607,6 +2597,8 @@ def extract_scene(scene, filename):
         output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
         # add an extra newline after '},'
         output_string = re.sub('},\s*\n', r'},\n\n', output_string)
+        # add an extra newline after '\n\s*],'
+        output_string = re.sub('(\n\s*)],\s*\n', r'\1],\n\n', output_string)
     else:
         output_string = json.dumps(output)
 
