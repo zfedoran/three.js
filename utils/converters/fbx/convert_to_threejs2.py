@@ -365,7 +365,7 @@ def triangulate_scene(scene):
 # #####################################################
 # Generate - Material String 
 # #####################################################
-def generate_texture_bindings(material_property, texture_list):
+def generate_texture_bindings(material_property, material_params):
     binding_types = {
     "DiffuseColor": "map", "DiffuseFactor": "diffuseFactor", "EmissiveColor": "emissiveMap", 
     "EmissiveFactor": "emissiveFactor", "AmbientColor": "ambientMap", "AmbientFactor": "ambientFactor", 
@@ -386,20 +386,18 @@ def generate_texture_bindings(material_property, texture_list):
                 for k in range(texture_count):
                     texture = layered_texture.GetSrcObject(FbxTexture.ClassId,k)
                     if texture:
-                        texture_id = getLabelString( getTextureName(texture, True) )
-                        texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
-                        texture_list.append(texture_binding)
+                        texture_id = getTextureName(texture, True)
+                        material_params[binding_types[str(material_property.GetName())]] = texture_id
         else:
             # no layered texture simply get on the property
             texture_count = material_property.GetSrcObjectCount(FbxTexture.ClassId)
             for j in range(texture_count):
                 texture = material_property.GetSrcObject(FbxTexture.ClassId,j)
                 if texture:
-                    texture_id = getLabelString( getTextureName(texture, True) )
-                    texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
-                    texture_list.append(texture_binding)
+                    texture_id = getTextureName(texture, True)
+                    material_params[binding_types[str(material_property.GetName())]] = texture_id
 
-def generate_material_string(material):
+def generate_material_object(material):
     #Get the implementation to see if it's a hardware shader.
     implementation = GetImplementation(material, "ImplementationHLSL")
     implementation_type = "HLSL"
@@ -407,101 +405,96 @@ def generate_material_string(material):
         implementation = GetImplementation(material, "ImplementationCGFX")
         implementation_type = "CGFX"
 
-    output = []
+    output = None
+    material_params = None
+    material_type = None
 
     if implementation:
         print("Shader materials are not supported")
         
     elif material.GetClassId().Is(FbxSurfaceLambert.ClassId):
 
-        ambient   = str(getHex(material.Ambient.Get()))
-        diffuse   = str(getHex(material.Diffuse.Get()))
-        emissive  = str(getHex(material.Emissive.Get()))
+        ambient   = getHex(material.Ambient.Get())
+        diffuse   = getHex(material.Diffuse.Get())
+        emissive  = getHex(material.Emissive.Get())
         opacity   = 1.0 - material.TransparencyFactor.Get()
         opacity   = 1.0 if opacity == 0 else opacity
-        opacity   = str(opacity)
-        transparent = getBoolString(False)
-        reflectivity = "1"
+        opacity   = opacity
+        transparent = False
+        reflectivity = 1
 
-        output = [
+        material_type = 'MeshLambertMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshLambertMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	    + opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     elif material.GetClassId().Is(FbxSurfacePhong.ClassId):
 
-        ambient   = str(getHex(material.Ambient.Get()))
-        diffuse   = str(getHex(material.Diffuse.Get()))
-        emissive  = str(getHex(material.Emissive.Get()))
-        specular  = str(getHex(material.Specular.Get()))
+        ambient   = getHex(material.Ambient.Get())
+        diffuse   = getHex(material.Diffuse.Get())
+        emissive  = getHex(material.Emissive.Get())
+        specular  = getHex(material.Specular.Get())
         opacity   = 1.0 - material.TransparencyFactor.Get()
         opacity   = 1.0 if opacity == 0 else opacity
-        opacity   = str(opacity)
-        shininess = str(material.Shininess.Get())
-        transparent = getBoolString(False)
-        reflectivity = "1"
-        bumpScale = "1"
+        opacity   = opacity
+        shininess = material.Shininess.Get()
+        transparent = False
+        reflectivity = 1
+        bumpScale = 1
 
-        output = [
+        material_type = 'MeshPhongMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshPhongMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"specular"  : ' + specular + ',',
-        '		"shininess" : ' + shininess + ',',
-        '		"bumpScale"  : '    + bumpScale + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	+ opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'specular' : specular,
+          'shininess' : shininess,
+          'bumpScale' : bumpScale,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     else:
       print("Unknown type of Material")
 
-    if not output:
-        ambient   = str(getHex((0,0,0)))
-        diffuse   = str(getHex((0.5,0.5,0.5)))
-        emissive  = str(getHex((0,0,0)))
-        opacity   = str(1)
-        transparent = getBoolString(False)
-        reflectivity = "1"
+    # default to Lambert Material if the current Material type cannot be handeled
+    if not material_type:
+        ambient   = getHex((0,0,0))
+        diffuse   = getHex((0.5,0.5,0.5))
+        emissive  = getHex((0,0,0))
+        opacity   = 1
+        transparent = False
+        reflectivity = 1
 
-        output = [
+        material_type = 'MeshLambertMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshLambertMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	    + opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     if option_textures:
         if mtl_texture_count == 0:
           
-            texture_list = []
             texture_count = FbxLayerElement.sTypeTextureCount()
             for texture_index in range(texture_count):
                 material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-                generate_texture_bindings(material_property, texture_list)
-            output += texture_list
+                generate_texture_bindings(material_property, material_params)
 
         else:
 
@@ -509,52 +502,47 @@ def generate_material_string(material):
                 if material.GetName() == mtl_material['name']:
                     if 'AmbientColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['AmbientColor'], mtl_material['AmbientColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('ambientMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['ambientMap'] = texture_name
                     if 'DiffuseColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['DiffuseColor'], mtl_material['DiffuseColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('map', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['map'] = texture_name
                     if 'SpecularColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['SpecularColor'], mtl_material['SpecularColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('specularMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['specularMap'] = texture_name
                     if 'Bump' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['Bump'], mtl_material['BumpId'], True)
-                        texture_binding = '		"%s": %s,' % ('bumpMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['bumpMap'] = texture_name
                     break
 
 
-    wireframe = getBoolString(False)
-    wireframeLinewidth = "1"
+    material_params['wireframe'] = False
+    material_params['wireframeLinewidth'] = 1
 
-    output.append('		"wireframe" : ' + wireframe + ',')
-    output.append('		"wireframeLinewidth" : ' + wireframeLinewidth)
-    output.append('	}')
-    output.append('}')
+    output = {
+      'type' : material_type,
+      'parameters' : material_params
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_proxy_material_string(node, material_names):
+def generate_proxy_material_object(node, material_names):
     
-    output = [
+    material_type = 'MeshFaceMaterial'
+    material_params = { 
+      'materials' : material_names 
+    }
 
-    '\t' + getLabelString( getMaterialName( node, True ) ) + ': {',
-    '	"type"    : "MeshFaceMaterial",',
-    '	"parameters"  : {',
-    '		"materials"  : ' + getArrayString( ",".join(getLabelString(m) for m in material_names) ),
-    '	}',
-    '}'
+    output = {
+      'type' : material_type,
+      'parameters' : material_params
+    }
 
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
 # #####################################################
 # Parse - Materials 
 # #####################################################
-def extract_materials_from_node(node, material_list):
+def extract_materials_from_node(node, material_dict):
     name = node.GetName()
     mesh = node.GetNodeAttribute()
 
@@ -576,35 +564,40 @@ def extract_materials_from_node(node, material_list):
                 material_names.append(getMaterialName(material))
 
     if material_count > 1:
-        proxy_material = generate_proxy_material_string(node, material_names)
-        material_list.append(proxy_material)
+        proxy_material = generate_proxy_material_object(node, material_names)
+        proxy_name = getMaterialName(node, True)
+        material_dict[proxy_name] = proxy_material
 
-def generate_materials_from_hierarchy(node, material_list):
+def generate_materials_from_hierarchy(node, material_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            extract_materials_from_node(node, material_list)
+            extract_materials_from_node(node, material_dict)
     for i in range(node.GetChildCount()):
-        generate_materials_from_hierarchy(node.GetChild(i), material_list)
+        generate_materials_from_hierarchy(node.GetChild(i), material_dict)
 
-def generate_material_list(scene):
-    material_list = []
+def generate_material_dict(scene):
+    material_dict = {}
 
+    # generate all materials for this scene
     material_count = scene.GetSrcObjectCount(FbxSurfaceMaterial.ClassId)
     for i in range(material_count):
         material = scene.GetSrcObject(FbxSurfaceMaterial.ClassId, i)
-        material_string = generate_material_string(material)
-        material_list.append(material_string)
+        material_object = generate_material_object(material)
+        material_name = getMaterialName(material)
+        material_dict[material_name] = material_object
 
     # generate material porxies
+    # Three.js does not support meshs with multiple materials, however it does
+    # support materials with multiple submaterials
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_materials_from_hierarchy(node.GetChild(i), material_list)
+            generate_materials_from_hierarchy(node.GetChild(i), material_dict)
 
-    return material_list
+    return material_dict
 
 # #####################################################
 # Generate - Texture String 
@@ -2146,9 +2139,9 @@ def generate_pose_node_object(pose, node_index):
 
     output = {
 
-      'position': getVector3( t, True ),
-      'quaternion': getVector4( q, True ),
-      'scale': getVector3( sc, True )
+      'position': getVector3( t ),
+      'quaternion': getVector4( q ),
+      'scale': getVector3( sc )
 
     }
 
@@ -2166,15 +2159,32 @@ def generate_pose_object(pose):
     return node_dict
 
 def generate_pose_list(scene):
-    pose_list = []
+    pose_dict = {}
     
     for p in range(scene.GetPoseCount()):
         pose = scene.GetPose(p)
 
-        pose_string = generate_pose_object(pose)
-        pose_list.append(pose_string)
+        pose_nodes = generate_pose_object(pose)
+        pose_name = getPoseName(pose)
 
-    return pose_list
+        pose_type = 'Unknown'
+        if pose.IsRestPose():
+          pose_type = 'RestPose'
+        if pose.IsBindPose():
+          pose_type = 'BindPose'
+
+        output = {
+          'type' : pose_type,
+        }
+
+        if option_pretty_print:
+            output['zchildren'] = pose_nodes
+        else:
+            output['children'] = pose_nodes
+
+        pose_dict[pose_name] = output
+
+    return pose_dict
 
 # #####################################################
 # Parse - Animations
@@ -2511,8 +2521,8 @@ def extract_scene(scene, filename):
     objects, nobjects = generate_scene_objects(scene)
 
     textures = generate_texture_dict(scene)
+    materials = generate_material_dict(scene)
 
-    materials = generate_material_list(scene)
     geometries = generate_geometry_list(scene)
     embeds = generate_embed_list(scene)
     fogs = []
@@ -2552,7 +2562,6 @@ def extract_scene(scene, filename):
         animation_curves = generateMultiLineString( animation_curve_list, ",\n\n\t", 0 )
 
     geometries = generateMultiLineString( geometries, ",\n\n\t", 0 )
-    materials = generateMultiLineString( materials, ",\n\n\t", 0 )
     embeds = generateMultiLineString( embeds, ",\n\n\t", 0 )
     fogs = generateMultiLineString( fogs, ",\n\n\t", 0 )
 
@@ -2573,10 +2582,9 @@ def extract_scene(scene, filename):
     }
 
     output = {
-      'metadata': metadata,
       'objects': objects,
      #'geometries': geometries,
-     #'materials': materials,
+      'materials': materials,
       'textures': textures,
      #'embeds': embeds,
       'poses': poses,
@@ -2585,9 +2593,16 @@ def extract_scene(scene, filename):
     }
 
     if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
+
+    if option_pretty_print:
         output_string = json.dumps(output, indent=4, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
         # turn array strings into arrays
         output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
+        # replace '0metadata' with metadata
+        output_string = re.sub('0metadata', r'metadata', output_string)
         # replace 'zchildren' with children
         output_string = re.sub('zchildren', r'children', output_string)
         # add an extra newline after '"children": {'
