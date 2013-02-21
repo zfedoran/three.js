@@ -5,6 +5,8 @@ import sys
 import math
 import operator
 import re
+import json
+import types
 
 # #####################################################
 # Globals
@@ -17,28 +19,62 @@ option_default_camera = False
 option_default_light = False
 option_animation = False
 option_parse_mtl = False
+option_pretty_print = False
 
 converter = None
 mtl_library = None
 mtl_texture_count = 0
 
 # #####################################################
+# Custom JSON format encoders
+# #####################################################
+class NoIndent(object):
+    def __init__(self, value, separator = ','):
+        self.separator = separator
+        self.value = value
+
+class NoIndentKeyframe(object):
+    def __init__(self, value, size):
+        self.value = value
+        self.size = size
+
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, NoIndent):
+            if obj.value:
+                return '[ %s ]' % obj.separator.join(str(f) for f in obj.value)
+            else:
+                return obj.value
+        elif isinstance(obj, NoIndentKeyframe):
+            if obj.value:
+                # turn the flat array into an array of arrays where each subarray is a single keyframe
+                # then string concat the keyframe values, delimited with a ', ' and round the values
+                # finally append '{KEYFRAME}' so that we can find the keyframes with regex later
+                return ['{KEYFRAME}%s' % ', '.join(str(round(f, 6)) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
+            else:
+                return obj.value
+        else:
+            return json.JSONEncoder.default(self, obj)
+
+# #####################################################
 # Templates
 # #####################################################
-def getVector2String(v, no_brackets = False, round_vector = False):
+def getVector2(v, round_vector = False):
+    # FbxVector2 is not JSON serializable
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
     if math.isnan(v[1]) or math.isinf(v[1]):
         v[1] = 0
-    if round_vector:
+    if round_vector or option_pretty_print:
         v = (round(v[0], 5), round(v[1], 5))
-    if no_brackets:
-        return '%g,%g' % (v[0], v[1])
+    if option_pretty_print:
+        return NoIndent([v[0], v[1]], ', ')
     else:
-        return '[ %g, %g ]' % (v[0], v[1])
+        return [v[0], v[1]]
 
-def getVector3String(v, no_brackets = False, round_vector = False):
+def getVector3(v, round_vector = False):
+    # FbxVector3 is not JSON serializable
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -46,14 +82,15 @@ def getVector3String(v, no_brackets = False, round_vector = False):
         v[1] = 0
     if math.isnan(v[2]) or math.isinf(v[2]):
         v[2] = 0
-    if round_vector:
+    if round_vector or option_pretty_print:
         v = (round(v[0], 5), round(v[1], 5), round(v[2], 5))
-    if no_brackets:
-        return '%g,%g,%g' % (v[0], v[1], v[2])
+    if option_pretty_print:
+        return NoIndent([v[0], v[1], v[2]], ', ')
     else:
-        return '[ %g, %g, %g ]' % (v[0], v[1], v[2])
+        return [v[0], v[1], v[2]]
 
-def getVector4String(v, no_brackets = False, round_vector = False):
+def getVector4(v, round_vector = False):
+    # FbxVector4 is not JSON serializable
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -63,31 +100,12 @@ def getVector4String(v, no_brackets = False, round_vector = False):
         v[2] = 0
     if math.isnan(v[3]) or math.isinf(v[3]):
         v[3] = 0
-    if round_vector:
+    if round_vector or option_pretty_print:
         v = (round(v[0], 5), round(v[1], 5), round(v[2], 5), round(v[3], 5))
-    if no_brackets:
-        return '%g,%g,%g,%g' % (v[0], v[1], v[2], v[3])
+    if option_pretty_print:
+        return NoIndent([v[0], v[1], v[2], v[3]], ', ')
     else:
-        return '[ %g, %g, %g, %g ]' % (v[0], v[1], v[2], v[3])
-
-def getLabelString(s):
-    s = s.replace('\\','\\\\')
-    s = s.replace('"','\\"')
-    return '"%s"' % s 
-
-def getArrayString(s):
-    return '[ %s ]' % s
-
-def getPaddingString(n):
-    output = ""
-    for i in range(n):
-        output += "\t"
-    return output
-        
-def getBoolString(value):
-    if value:
-        return "true"
-    return "false"
+        return [v[0], v[1], v[2], v[3]]
 
 # #####################################################
 # Helpers
@@ -206,7 +224,7 @@ def getFogName(o, force_prefix = False):
     return prefix + o.GetName()
 
 def getObjectVisible(n):
-    return getBoolString(True)
+    return True
     
 def getRadians(v):
     return ((v[0]*math.pi)/180, (v[1]*math.pi)/180, (v[2]*math.pi)/180)
@@ -235,18 +253,16 @@ def convert_fbx_vec3(v):
 def generate_uvs(uv_layers):
     layers = []
     for uvs in uv_layers:
-        layer = ",".join(getVector2String(n, True) for n in uvs)
+        tmp = []
+        for uv in uvs:
+            tmp.append(uv[0])
+            tmp.append(uv[1])
+        if option_pretty_print:
+            layer = NoIndent(tmp)
+        else:
+            layer = tmp
         layers.append(layer)
-
-    return ",".join("[%s]" % n for n in layers)
-
-def generateMultiLineString(lines, separator, padding):
-    cleanLines = []
-    for i in range(len(lines)):
-        line = lines[i]
-        line = getPaddingString(padding) + line
-        cleanLines.append(line)
-    return separator.join(cleanLines)
+    return layers
 
 def generate_bounding_box(vertices):
     minx = float('inf')
@@ -273,7 +289,6 @@ def generate_bounding_box(vertices):
 
     return [minx, miny, minz], [maxx, maxy, maxz]
 
-    
 # #####################################################
 # Generate - Triangles 
 # #####################################################
@@ -300,15 +315,26 @@ def triangulate_scene(scene):
 # #####################################################
 # Generate - Material String 
 # #####################################################
-def generate_texture_bindings(material_property, texture_list):
+def generate_texture_bindings(material_property, material_params):
+    # FBX to Three.js texture types 
     binding_types = {
-    "DiffuseColor": "map", "DiffuseFactor": "diffuseFactor", "EmissiveColor": "emissiveMap", 
-    "EmissiveFactor": "emissiveFactor", "AmbientColor": "ambientMap", "AmbientFactor": "ambientFactor", 
-    "SpecularColor": "specularMap", "SpecularFactor": "specularFactor", "ShininessExponent": "shininessExponent",
-    "NormalMap": "normalMap", "Bump": "bumpMap", "TransparentColor": "transparentMap", 
-    "TransparencyFactor": "transparentFactor", "ReflectionColor": "reflectionMap", 
-    "ReflectionFactor": "reflectionFactor", "DisplacementColor": "displacementMap", 
-    "VectorDisplacementColor": "vectorDisplacementMap"
+        "DiffuseColor": "map", 
+        "DiffuseFactor": "diffuseFactor", 
+        "EmissiveColor": "emissiveMap", 
+        "EmissiveFactor": "emissiveFactor", 
+        "AmbientColor": "ambientMap", 
+        "AmbientFactor": "ambientFactor", 
+        "SpecularColor": "specularMap", 
+        "SpecularFactor": "specularFactor", 
+        "ShininessExponent": "shininessExponent",
+        "NormalMap": "normalMap", 
+        "Bump": "bumpMap", 
+        "TransparentColor": "transparentMap", 
+        "TransparencyFactor": "transparentFactor", 
+        "ReflectionColor": "reflectionMap", 
+        "ReflectionFactor": "reflectionFactor", 
+        "DisplacementColor": "displacementMap", 
+        "VectorDisplacementColor": "vectorDisplacementMap"
     }
 
     if material_property.IsValid():
@@ -321,20 +347,18 @@ def generate_texture_bindings(material_property, texture_list):
                 for k in range(texture_count):
                     texture = layered_texture.GetSrcObject(FbxTexture.ClassId,k)
                     if texture:
-                        texture_id = getLabelString( getTextureName(texture, True) )
-                        texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
-                        texture_list.append(texture_binding)
+                        texture_id = getTextureName(texture, True)
+                        material_params[binding_types[str(material_property.GetName())]] = texture_id
         else:
             # no layered texture simply get on the property
             texture_count = material_property.GetSrcObjectCount(FbxTexture.ClassId)
             for j in range(texture_count):
                 texture = material_property.GetSrcObject(FbxTexture.ClassId,j)
                 if texture:
-                    texture_id = getLabelString( getTextureName(texture, True) )
-                    texture_binding = '		"%s": %s,' % (binding_types[str(material_property.GetName())], texture_id)
-                    texture_list.append(texture_binding)
+                    texture_id = getTextureName(texture, True)
+                    material_params[binding_types[str(material_property.GetName())]] = texture_id
 
-def generate_material_string(material):
+def generate_material_object(material):
     #Get the implementation to see if it's a hardware shader.
     implementation = GetImplementation(material, "ImplementationHLSL")
     implementation_type = "HLSL"
@@ -342,101 +366,96 @@ def generate_material_string(material):
         implementation = GetImplementation(material, "ImplementationCGFX")
         implementation_type = "CGFX"
 
-    output = []
+    output = None
+    material_params = None
+    material_type = None
 
     if implementation:
         print("Shader materials are not supported")
         
     elif material.GetClassId().Is(FbxSurfaceLambert.ClassId):
 
-        ambient   = str(getHex(material.Ambient.Get()))
-        diffuse   = str(getHex(material.Diffuse.Get()))
-        emissive  = str(getHex(material.Emissive.Get()))
+        ambient   = getHex(material.Ambient.Get())
+        diffuse   = getHex(material.Diffuse.Get())
+        emissive  = getHex(material.Emissive.Get())
         opacity   = 1.0 - material.TransparencyFactor.Get()
         opacity   = 1.0 if opacity == 0 else opacity
-        opacity   = str(opacity)
-        transparent = getBoolString(False)
-        reflectivity = "1"
+        opacity   = opacity
+        transparent = False
+        reflectivity = 1
 
-        output = [
+        material_type = 'MeshLambertMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshLambertMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	    + opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     elif material.GetClassId().Is(FbxSurfacePhong.ClassId):
 
-        ambient   = str(getHex(material.Ambient.Get()))
-        diffuse   = str(getHex(material.Diffuse.Get()))
-        emissive  = str(getHex(material.Emissive.Get()))
-        specular  = str(getHex(material.Specular.Get()))
+        ambient   = getHex(material.Ambient.Get())
+        diffuse   = getHex(material.Diffuse.Get())
+        emissive  = getHex(material.Emissive.Get())
+        specular  = getHex(material.Specular.Get())
         opacity   = 1.0 - material.TransparencyFactor.Get()
         opacity   = 1.0 if opacity == 0 else opacity
-        opacity   = str(opacity)
-        shininess = str(material.Shininess.Get())
-        transparent = getBoolString(False)
-        reflectivity = "1"
-        bumpScale = "1"
+        opacity   = opacity
+        shininess = material.Shininess.Get()
+        transparent = False
+        reflectivity = 1
+        bumpScale = 1
 
-        output = [
+        material_type = 'MeshPhongMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshPhongMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"specular"  : ' + specular + ',',
-        '		"shininess" : ' + shininess + ',',
-        '		"bumpScale"  : '    + bumpScale + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	+ opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'specular' : specular,
+          'shininess' : shininess,
+          'bumpScale' : bumpScale,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     else:
       print("Unknown type of Material")
 
-    if not output:
-        ambient   = str(getHex((0,0,0)))
-        diffuse   = str(getHex((0.5,0.5,0.5)))
-        emissive  = str(getHex((0,0,0)))
-        opacity   = str(1)
-        transparent = getBoolString(False)
-        reflectivity = "1"
+    # default to Lambert Material if the current Material type cannot be handeled
+    if not material_type:
+        ambient   = getHex((0,0,0))
+        diffuse   = getHex((0.5,0.5,0.5))
+        emissive  = getHex((0,0,0))
+        opacity   = 1
+        transparent = False
+        reflectivity = 1
 
-        output = [
+        material_type = 'MeshLambertMaterial'
+        material_params = {
 
-        '\t' + getLabelString( getMaterialName( material ) ) + ': {',
-        '	"type"    : "MeshLambertMaterial",',
-        '	"parameters"  : {',
-        '		"color"  : ' 	  + diffuse + ',',
-        '		"ambient"  : ' 	+ ambient + ',',
-        '		"emissive"  : ' + emissive + ',',
-        '		"reflectivity"  : ' + reflectivity + ',',
-        '		"transparent" : '   + transparent + ',',
-        '		"opacity" : ' 	    + opacity + ',',
+          'color' : diffuse,
+          'ambient' : ambient,
+          'emissive' : emissive,
+          'reflectivity' : reflectivity,
+          'transparent' : transparent,
+          'opacity' : opacity
 
-        ]
+        }
 
     if option_textures:
         if mtl_texture_count == 0:
           
-            texture_list = []
             texture_count = FbxLayerElement.sTypeTextureCount()
             for texture_index in range(texture_count):
                 material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-                generate_texture_bindings(material_property, texture_list)
-            output += texture_list
+                generate_texture_bindings(material_property, material_params)
 
         else:
 
@@ -444,52 +463,47 @@ def generate_material_string(material):
                 if material.GetName() == mtl_material['name']:
                     if 'AmbientColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['AmbientColor'], mtl_material['AmbientColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('ambientMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['ambientMap'] = texture_name
                     if 'DiffuseColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['DiffuseColor'], mtl_material['DiffuseColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('map', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['map'] = texture_name
                     if 'SpecularColor' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['SpecularColor'], mtl_material['SpecularColorId'], True)
-                        texture_binding = '		"%s": %s,' % ('specularMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['specularMap'] = texture_name
                     if 'Bump' in mtl_material:
                         texture_name = getMtlTextureName(mtl_material['Bump'], mtl_material['BumpId'], True)
-                        texture_binding = '		"%s": %s,' % ('bumpMap', getLabelString(texture_name))
-                        output.append(texture_binding)
+                        material_params['bumpMap'] = texture_name
                     break
 
 
-    wireframe = getBoolString(False)
-    wireframeLinewidth = "1"
+    material_params['wireframe'] = False
+    material_params['wireframeLinewidth'] = 1
 
-    output.append('		"wireframe" : ' + wireframe + ',')
-    output.append('		"wireframeLinewidth" : ' + wireframeLinewidth)
-    output.append('	}')
-    output.append('}')
+    output = {
+      'type' : material_type,
+      'parameters' : material_params
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_proxy_material_string(node, material_names):
+def generate_proxy_material_object(node, material_names):
     
-    output = [
+    material_type = 'MeshFaceMaterial'
+    material_params = { 
+      'materials' : material_names 
+    }
 
-    '\t' + getLabelString( getMaterialName( node, True ) ) + ': {',
-    '	"type"    : "MeshFaceMaterial",',
-    '	"parameters"  : {',
-    '		"materials"  : ' + getArrayString( ",".join(getLabelString(m) for m in material_names) ),
-    '	}',
-    '}'
+    output = {
+      'type' : material_type,
+      'parameters' : material_params
+    }
 
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
 # #####################################################
 # Parse - Materials 
 # #####################################################
-def extract_materials_from_node(node, material_list):
+def extract_materials_from_node(node, material_dict):
     name = node.GetName()
     mesh = node.GetNodeAttribute()
 
@@ -511,40 +525,45 @@ def extract_materials_from_node(node, material_list):
                 material_names.append(getMaterialName(material))
 
     if material_count > 1:
-        proxy_material = generate_proxy_material_string(node, material_names)
-        material_list.append(proxy_material)
+        proxy_material = generate_proxy_material_object(node, material_names)
+        proxy_name = getMaterialName(node, True)
+        material_dict[proxy_name] = proxy_material
 
-def generate_materials_from_hierarchy(node, material_list):
+def generate_materials_from_hierarchy(node, material_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            extract_materials_from_node(node, material_list)
+            extract_materials_from_node(node, material_dict)
     for i in range(node.GetChildCount()):
-        generate_materials_from_hierarchy(node.GetChild(i), material_list)
+        generate_materials_from_hierarchy(node.GetChild(i), material_dict)
 
-def generate_material_list(scene):
-    material_list = []
+def generate_material_dict(scene):
+    material_dict = {}
 
+    # generate all materials for this scene
     material_count = scene.GetSrcObjectCount(FbxSurfaceMaterial.ClassId)
     for i in range(material_count):
         material = scene.GetSrcObject(FbxSurfaceMaterial.ClassId, i)
-        material_string = generate_material_string(material)
-        material_list.append(material_string)
+        material_object = generate_material_object(material)
+        material_name = getMaterialName(material)
+        material_dict[material_name] = material_object
 
     # generate material porxies
+    # Three.js does not support meshs with multiple materials, however it does
+    # support materials with multiple submaterials
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_materials_from_hierarchy(node.GetChild(i), material_list)
+            generate_materials_from_hierarchy(node.GetChild(i), material_dict)
 
-    return material_list
+    return material_dict
 
 # #####################################################
 # Generate - Texture String 
 # #####################################################
-def generate_texture_string(texture):
+def generate_texture_object(texture):
 
     #TODO: extract more texture properties
     wrap_u = texture.GetWrapModeU()
@@ -556,41 +575,38 @@ def generate_texture_string(texture):
     else:
         url = getTextureName( texture )
 
-    output = [
+    output = {
 
-    '\t' + getLabelString( getTextureName( texture, True ) ) + ': {',
-    '	"url"    : ' + getLabelString( url ) + ',',
-    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
-    '	"offset" : ' + getVector2String( texture.GetUVTranslation() ) + ',',
-    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + getBoolString( True ),
-    '}'
+      'url': url,
+      'repeat': getVector2( (1,1) ),
+      'offset': getVector2( texture.GetUVTranslation() ),
+      'magFilter': 'LinearFilter',
+      'minFilter': 'LinearMipMapLinearFilter',
+      'anisotropy': True
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_mtl_texture_string(texture, textureId):
+def generate_mtl_texture_object(texture):
 
-    output = [
+    output = {
 
-    '\t' + getLabelString( getMtlTextureName( texture, textureId, True ) ) + ': {',
-    '	"url"    : ' + getLabelString( texture ) + ',',
-    '	"repeat" : ' + getVector2String( (1,1) ) + ',',
-    '	"offset" : ' + getVector2String( (0,0) ) + ',',
-    '	"magFilter" : ' + getLabelString( "LinearFilter" ) + ',',
-    '	"minFilter" : ' + getLabelString( "LinearMipMapLinearFilter" ) + ',',
-    '	"anisotropy" : ' + getBoolString( True ),
-    '}'
+      'url': texture,
+      'repeat': getVector2( (1,1) ),
+      'offset': getVector2( (0,0) ),
+      'magFilter': 'LinearFilter',
+      'minFilter': 'LinearMipMapLinearFilter',
+      'anisotropy': True
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
+
 # #####################################################
 # Parse - Textures 
 # #####################################################
-def extract_material_textures(material_property, texture_list):
+def extract_material_textures(material_property, texture_dict):
     if material_property.IsValid():
         #Here we have to check if it's layeredtextures, or just textures:
         layered_texture_count = material_property.GetSrcObjectCount(FbxLayeredTexture.ClassId)
@@ -601,18 +617,21 @@ def extract_material_textures(material_property, texture_list):
                 for k in range(texture_count):
                     texture = layered_texture.GetSrcObject(FbxTexture.ClassId,k)
                     if texture:
-                        texture_string = generate_texture_string(texture)
-                        texture_list.append(texture_string)
+                        texture_object = generate_texture_object(texture)
+                        texture_name = getTextureName( texture, True )
+                        print texture_name
+                        texture_dict[texture_name] = texture_object
         else:
             # no layered texture simply get on the property
             texture_count = material_property.GetSrcObjectCount(FbxTexture.ClassId)
             for j in range(texture_count):
                 texture = material_property.GetSrcObject(FbxTexture.ClassId,j)
                 if texture:
-                    texture_string = generate_texture_string(texture)
-                    texture_list.append(texture_string)
+                    texture_object = generate_texture_object(texture)
+                    texture_name = getTextureName( texture, True )
+                    texture_dict[texture_name] = texture_object
 
-def extract_textures_from_node(node, texture_list):
+def extract_textures_from_node(node, texture_dict):
     name = node.GetName()
     mesh = node.GetNodeAttribute()
     
@@ -628,7 +647,7 @@ def extract_textures_from_node(node, texture_list):
                 texture_count = FbxLayerElement.sTypeTextureCount()
                 for texture_index in range(texture_count):
                     material_property = material.FindProperty(FbxLayerElement.sTextureChannelNames(texture_index))
-                    extract_material_textures(material_property, texture_list)
+                    extract_material_textures(material_property, texture_dict)
 
             else:
 
@@ -637,49 +656,49 @@ def extract_textures_from_node(node, texture_list):
                         if 'AmbientColor' in mtl_material:
                             texture_name = mtl_material['AmbientColor'] 
                             texture_id = mtl_material['AmbientColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['AmbientColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'DiffuseColor' in mtl_material:
                             texture_name = mtl_material['DiffuseColor'] 
                             texture_id = mtl_material['DiffuseColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['DiffuseColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'SpecularColor' in mtl_material:
                             texture_name = mtl_material['SpecularColor'] 
                             texture_id = mtl_material['SpecularColorId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['SpecularColor'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         if 'Bump' in mtl_material:
                             texture_name = mtl_material['Bump'] 
                             texture_id = mtl_material['BumpId'] 
-                            texture_string = generate_mtl_texture_string(texture_name, texture_id)
-                            texture_list.append(texture_string)
-                            del(mtl_material['Bump'])
+                            texture_object = generate_mtl_texture_object(texture_name)
+                            texture_name = getMtlTextureName( texture, textureId, True )
+                            texture_dict[texture_name] = texture_object
                         break
 
-def generate_textures_from_hierarchy(node, texture_list):
+def generate_textures_from_hierarchy(node, texture_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            extract_textures_from_node(node, texture_list)
+            extract_textures_from_node(node, texture_dict)
     for i in range(node.GetChildCount()):
-        generate_textures_from_hierarchy(node.GetChild(i), texture_list)
+        generate_textures_from_hierarchy(node.GetChild(i), texture_dict)
 
-def generate_texture_list(scene):
+def generate_texture_dict(scene):
     if not option_textures:
-        return []
+        return {}
 
-    texture_list = []
+    texture_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_textures_from_hierarchy(node.GetChild(i), texture_list)
-    return texture_list
+            generate_textures_from_hierarchy(node.GetChild(i), texture_dict)
+    return texture_dict
 
 # #####################################################
 # Extract - Fbx Mesh data
@@ -1024,6 +1043,9 @@ def generate_mesh_string_for_scene_output(node):
                 vertex_offsets, 
                 material_offsets)
 
+    aabb_min, aabb_max = generate_bounding_box(vertices)
+
+    # generate counts for uvs, vertices, normals, colors, and faces
     nuvs = []
     for layer_index, uvs in enumerate(uv_values):
         nuvs.append(str(len(uvs)))
@@ -1032,30 +1054,19 @@ def generate_mesh_string_for_scene_output(node):
     nnormals = len(normal_values)
     ncolors = len(color_values)
     nfaces = len(faces)
-    nuvs = ",".join(nuvs)
-    
-    aabb_min, aabb_max = generate_bounding_box(vertices)
-    aabb_min = ",".join(str(f) for f in aabb_min)
-    aabb_max = ",".join(str(f) for f in aabb_max)
 
-    vertices = ",".join(getVector3String(v, True) for v in vertices)
-    normals  = ",".join(getVector3String(v, True) for v in normal_values)
-    colors   = ",".join(getVector3String(v, True) for v in color_values)
-    faces    = ",".join(faces)
-    uvs      = generate_uvs(uv_values)
-
-    bones   = ""
-    weights = ""
-    indices = ""
     nskinning_bones   = 0
     nskinning_weights = 0
     nskinning_indices = 0
 
+    bones   = []
+    weights = []
+    indices = []
+
+    # get skinning data
     if option_animation: 
         skinning_weights = process_mesh_skin_weights(mesh_list)
         skinning_indices = []
-
-        #TODO: merge skeletons when len(mesh_list) > 0
         skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list[0])
 
         for i in range(len(skinning_weights)):
@@ -1076,81 +1087,74 @@ def generate_mesh_string_for_scene_output(node):
         nskinning_weights = len(skinning_weights) * 2
         nskinning_indices = len(skinning_indices)
 
-        bones    = ",".join(getLabelString(getObjectName(b)) for b in skinning_bones)
-        weights  = ",".join(str(round(w[0],6)) for l in skinning_weights for w in l)
-        indices  = ",".join(str(i) for i in skinning_indices)
+        bones = [getObjectName(b) for b in skinning_bones]
+        weights = [round(w[0],6) for l in skinning_weights for w in l]
+        indices  = skinning_indices
 
-    metadata = [
+    # flatten arrays
+    uv_values = generate_uvs(uv_values)
+    vertices = [val for v in vertices for val in v]
+    normal_values = [val for n in normal_values for val in n]
+    color_values = [val for c in color_values for val in c]
+    faces = [val for f in faces for val in f]
 
-    '		"vertices" : ' + str(nvertices) + ',',
-    '		"skinWeights" : ' + str(nskinning_weights) + ',',
-    '		"skinIndices" : ' + str(nskinning_indices) + ',',
-    '		"skinBones" : ' + str(nskinning_bones) + ',',
-    '		"normals" : ' + str(nnormals) + ',',
-    '		"colors" : ' + str(ncolors) + ',',
-    '		"faces" : ' + str(nfaces) + ',',
-    '		"uvs" : ' + getArrayString(nuvs),
+    # disable json indenting when pretty printing for the arrays
+    if option_pretty_print:
+        nuvs = NoIndent(nuvs)
+        weights = NoIndent(weights)
+        indices = NoIndent(indices)
+        aabb_min = NoIndent(aabb_min, ', ')
+        aabb_max = NoIndent(aabb_max, ', ')
+        vertices = NoIndent(vertices)
+        normal_values = NoIndent(normal_values)
+        color_values = NoIndent(color_values)
+        faces = NoIndent(faces)
+  
+    metadata = {
+      'vertices' : nvertices,
+      'skinWeights' : nskinning_weights,
+      'skinIndices' : nskinning_indices,
+      'skinBones' : nskinning_bones,
+      'normals' : nnormals,
+      'colors' : ncolors,
+      'faces' : nfaces,
+      'uvs' : nuvs
+    }
 
-    ]
+    skinning = {
+      'weights' : weights,
+      'indices' : indices,
+      'bones' : bones,
+    }
 
-    skinning = [
+    aabb = {
+      'min' : aabb_min,
+      'max' : aabb_max
+    }
 
-    '		"weights" : ' + getArrayString(weights) + ',',   
-    '		"indices" : ' + getArrayString(indices) + ',',   
-    '		"bones" : ' + getArrayString(bones)    
+    output = {
+      'boundingBox' : aabb,
+      'scale' : 1,
+      'materials' : [],
+      'skinning' : skinning,
+      'vertices' : vertices,
+      'normals' : normal_values,
+      'colors' : color_values,
+      'uvs' : uv_values,
+      'faces' : faces
+    }
 
-    ]
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
 
-    aabb = [
-
-    '		"min" : ' + getArrayString(aabb_min) + ',',   
-    '		"max" : ' + getArrayString(aabb_max),   
-
-    ]
-
-    metadata = generateMultiLineString( metadata, '\n\t\t', 0 )
-    skinning = generateMultiLineString( skinning, '\n\t\t', 0 )
-    aabb = generateMultiLineString( aabb, '\n\t\t', 0 )
-
-    output = [
-
-    '\t' + getLabelString( getEmbedName( node, True ) ) + ' : {',
-
-    '	"metadata" :',
-    '	{',
-    metadata,
-    '	},',
-    '',
-
-    '	"boundingBox" :',
-    '	{',
-    aabb,
-    '	},',
-    '',
-
-    '	"skinning" :',
-    '	{',
-    skinning,
-    '	},',
-    '',
-
-    '	"scale" : ' + str( 1 ) + ',',   
-    '	"materials" : ' + getArrayString("") + ',',   
-    '	"vertices" : ' + getArrayString(vertices) + ',',   
-    '	"normals" : ' + getArrayString(normals) + ',',   
-    '	"colors" : ' + getArrayString(colors) + ',',   
-    '	"uvs" : ' + getArrayString(uvs) + ',',   
-    '	"faces" : ' + getArrayString(faces),
-    '}'
-
-    ]
-    
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
 # #####################################################
 # Generate - Mesh String (for non-scene output) 
 # #####################################################
-def generate_mesh_string_for_non_scene_output(scene):
+def generate_non_scene_output(scene):
     mesh_list = generate_mesh_list(scene)
 
     vertices, vertex_offsets = process_mesh_vertices(mesh_list)
@@ -1171,6 +1175,9 @@ def generate_mesh_string_for_non_scene_output(scene):
                 vertex_offsets, 
                 material_offsets)
 
+    aabb_min, aabb_max = generate_bounding_box(vertices)
+
+    # generate counts for uvs, vertices, normals, colors, and faces
     nuvs = []
     for layer_index, uvs in enumerate(uv_values):
         nuvs.append(str(len(uvs)))
@@ -1179,47 +1186,57 @@ def generate_mesh_string_for_non_scene_output(scene):
     nnormals = len(normal_values)
     ncolors = len(color_values)
     nfaces = len(faces)
-    nuvs = ",".join(nuvs)
 
-    aabb_min, aabb_max = generate_bounding_box(vertices)
-    aabb_min = ",".join(str(f) for f in aabb_min)
-    aabb_max = ",".join(str(f) for f in aabb_max)
+    # flatten arrays
+    uv_values = generate_uvs(uv_values)
+    vertices = [val for v in vertices for val in v]
+    normal_values = [val for n in normal_values for val in n]
+    color_values = [val for c in color_values for val in c]
+    faces = [val for f in faces for val in f]
 
-    vertices = ",".join(getVector3String(v, True) for v in vertices)
-    normals  = ",".join(getVector3String(v, True) for v in normal_values)
-    colors   = ",".join(getVector3String(v, True) for v in color_values)
-    faces    = ",".join(faces)
-    uvs      = generate_uvs(uv_values)
+    # disable json indenting when pretty printing for the arrays
+    if option_pretty_print:
+        nuvs = NoIndent(nuvs)
+        aabb_min = NoIndent(aabb_min)
+        aabb_max = NoIndent(aabb_max)
+        vertices = NoIndent(vertices)
+        normal_values = NoIndent(normal_values)
+        color_values = NoIndent(color_values)
+        faces = NoIndent(faces)
 
-    output = [
+    metadata = {
+      'formatVersion' : 3.2,
+      'type' : 'geometry',
+      'generatedBy' : 'convert-to-threejs.py',
+      'vertices' : nvertices,
+      'normals' : nnormals,
+      'colors' : ncolors,
+      'faces' : nfaces,
+      'uvs' : nuvs
+    }
 
-    '{',
-    '	"metadata"  : {',
-    '		"formatVersion" : 3.2,',
-    '		"type"		: "geometry",',
-    '		"generatedBy"	: "convert-to-threejs.py"' + ',',
-    '		"vertices" : ' + str(nvertices) + ',',
-    '		"normals" : ' + str(nnormals) + ',',
-    '		"colors" : ' + str(ncolors) + ',',
-    '		"faces" : ' + str(nfaces) + ',',
-    '		"uvs" : ' + getArrayString(nuvs),
-    '	},',
-    '	"boundingBox"  : {',
-    '		"min" : ' + getArrayString(aabb_min) + ',',   
-    '		"max" : ' + getArrayString(aabb_max),   
-    '	},',
-    '	"scale" : ' + str( 1 ) + ',',   
-    '	"materials" : ' + getArrayString("") + ',',   
-    '	"vertices" : ' + getArrayString(vertices) + ',',   
-    '	"normals" : ' + getArrayString(normals) + ',',   
-    '	"colors" : ' + getArrayString(colors) + ',',   
-    '	"uvs" : ' + getArrayString(uvs) + ',',   
-    '	"faces" : ' + getArrayString(faces),
-    '}'
+    aabb = {
+      'min' : aabb_min,
+      'max' : aabb_max
+    }
 
-    ]
+    output = {
+      'boundingBox' : aabb,
+      'scale' : 1,
+      'materials' : [],
+      'vertices' : vertices,
+      'normals' : normal_values,
+      'colors' : color_values,
+      'uvs' : uv_values,
+      'faces' : faces
+    }
 
-    return generateMultiLineString( output, '\n', 0 )
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
+
+    return output
 
 # #####################################################
 # Process - Mesh Geometry
@@ -1613,7 +1630,7 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
             index = colors[i]
             faceData.append(index)
 
-    return ",".join( map(str, faceData) ) 
+    return faceData 
 
 
 # #####################################################
@@ -1648,7 +1665,7 @@ def generate_mesh_list(scene):
 # #####################################################
 # Generate - Embeds 
 # #####################################################
-def generate_embed_list_from_hierarchy(node, embed_list):
+def generate_embed_dict_from_hierarchy(node, embed_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
@@ -1661,52 +1678,52 @@ def generate_embed_list_from_hierarchy(node, embed_list):
             if attribute_type != FbxNodeAttribute.eMesh:
                 converter.TriangulateInPlace(node);
 
-            embed_string = generate_mesh_string_for_scene_output(node)
-            embed_list.append(embed_string)
+            embed_object = generate_mesh_string_for_scene_output(node)
+            embed_name = getEmbedName(node, True)
+            embed_dict[embed_name] = embed_object
 
     for i in range(node.GetChildCount()):
-        generate_embed_list_from_hierarchy(node.GetChild(i), embed_list)
+        generate_embed_dict_from_hierarchy(node.GetChild(i), embed_dict)
 
-def generate_embed_list(scene):
-    embed_list = []
+def generate_embed_dict(scene):
+    embed_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_embed_list_from_hierarchy(node.GetChild(i), embed_list)
-    return embed_list
+            generate_embed_dict_from_hierarchy(node.GetChild(i), embed_dict)
+    return embed_dict
 
 # #####################################################
 # Generate - Geometries 
 # #####################################################
-def generate_geometry_string(node):
+def generate_geometry_object(node):
 
-    output = [
-    '\t' + getLabelString( getGeometryName( node, True ) ) + ' : {',
-    '	"type"  : "embedded",',
-    '	"id" : ' + getLabelString( getEmbedName( node, True ) ),
-    '}'
-    ]
+    output = {
+      'type' : 'embedded',
+      'id' : getEmbedName( node, True )
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
 
-def generate_geometry_list_from_hierarchy(node, geometry_list):
+def generate_geometry_dict_from_hierarchy(node, geometry_dict):
     if node.GetNodeAttribute() == None:
         pass
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            geometry_string = generate_geometry_string(node)
-            geometry_list.append(geometry_string)
+            geometry_object = generate_geometry_object(node)
+            geometry_name = getGeometryName( node, True )
+            geometry_dict[geometry_name] = geometry_object
     for i in range(node.GetChildCount()):
-        generate_geometry_list_from_hierarchy(node.GetChild(i), geometry_list)
+        generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
 
-def generate_geometry_list(scene):
-    geometry_list = []
+def generate_geometry_dict(scene):
+    geometry_dict = {}
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            generate_geometry_list_from_hierarchy(node.GetChild(i), geometry_list)
-    return geometry_list
+            generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
+    return geometry_dict
 
 # #####################################################
 # Generate - Camera Names
@@ -1733,26 +1750,22 @@ def generate_camera_name_list(scene):
 # #####################################################
 # Generate - Light Object 
 # #####################################################
-def generate_default_light_string(padding):
+def generate_default_light():
     direction = (1,1,1)
     color = (1,1,1)
     intensity = 80.0
 
-    output = [
+    output = {
+      'type': 'DirectionalLight',
+      'color': getHex(color),
+      'intensity': intensity/100.00,
+      'direction': getVector3( direction ),
+      'target': getObjectName( None )
+    }
 
-    '\t\t' + getLabelString( 'default_light' ) + ' : {',
-    '	"type"      : "DirectionalLight",',
-    '	"color"     : ' + str(getHex(color)) + ',',
-    '	"intensity" : ' + str(intensity/100.0) + ',',
-    '	"direction" : ' + getVector3String( direction ) + ',',
-    '	"target"    : ' + getLabelString( getObjectName( None ) ),
-    ' }'
+    return output
 
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
-
-def generate_light_string(node, padding):
+def generate_light_object(node):
     light = node.GetNodeAttribute()
     light_types = ["point", "directional", "spot", "area", "volume"]
     light_type = light_types[light.LightType.Get()]
@@ -1760,7 +1773,7 @@ def generate_light_string(node, padding):
     transform = node.EvaluateLocalTransform()
     position = transform.GetT()
 
-    output = []
+    output = None
 
     if light_type == "directional":
 
@@ -1777,48 +1790,46 @@ def generate_light_string(node, padding):
             matrix = FbxMatrix(translation, rotation, scale)
             direction = matrix.MultNormalize(FbxVector4(0,1,0,1)) 
 
-        output = [
+        output = {
 
-        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-        '	"type"      : "DirectionalLight",',
-        '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
-        '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"direction" : ' + getVector3String( direction ) + ',',
-        '	"target"    : ' + getLabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
-        ]
+          'type': 'DirectionalLight',
+          'color': getHex(light.Color.Get()),
+          'intensity': light.Intensity.Get()/100.0,
+          'direction': getVector3( direction ),
+          'target': getObjectName( node.GetTarget() ) 
+
+        }
 
     elif light_type == "point":
 
-        output = [
+        output = {
 
-        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-        '	"type"      : "PointLight",',
-        '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
-        '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"position"  : ' + getVector3String( position ) + ',',
-        '	"distance"  : ' + str(light.FarAttenuationEnd.Get()) + ( ',' if node.GetChildCount() > 0 else '' )
+          'type': 'PointLight',
+          'color': getHex(light.Color.Get()),
+          'intensity': light.Intensity.Get()/100.0,
+          'position': getVector3( position ),
+          'distance': ligth.FarAttenuationEnd.Get()
 
-        ]
+        }
 
     elif light_type == "spot":
 
-        output = [
+        output = {
 
-        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-        '	"type"      : "SpotLight",',
-        '	"color"     : ' + str(getHex(light.Color.Get())) + ',',
-        '	"intensity" : ' + str(light.Intensity.Get()/100.0) + ',',
-        '	"position"  : ' + getVector3String( position ) + ',',
-        '	"distance"  : ' + str(light.FarAttenuationEnd.Get()) + ',',
-        '	"angle"     : ' + str((light.OuterAngle.Get()*math.pi)/180) + ',',
-        '	"exponent"  : ' + str(light.DecayType.Get()) + ',',
-        '	"target"    : ' + getLabelString( getObjectName( node.GetTarget() ) ) + ( ',' if node.GetChildCount() > 0 else '' )
+          'type': 'SpotLight',
+          'color': getHex(light.Color.Get()),
+          'intensity': light.Intensity.Get()/100.0,
+          'position': getVector3( position ),
+          'distance': ligth.FarAttenuationEnd.Get(),
+          'angle': ligth.OuterAngle.Get()*math.pi/180,
+          'exponent': ligth.DecayType.Get(),
+          'target': getObjectName( node.GetTarget() ) 
 
-        ]
+        }
 
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
-def generate_ambient_light_string(scene):
+def generate_ambient_light(scene):
 
     scene_settings = scene.GetGlobalSettings()
     ambient_color = scene_settings.GetAmbientColor()
@@ -1827,41 +1838,35 @@ def generate_ambient_light_string(scene):
     if ambient_color[0] == 0 and ambient_color[1] == 0 and ambient_color[2] == 0:
         return None
 
-    output = [
+    output = {
 
-    '\t\t' + getLabelString( "AmbientLight" ) + ' : {',
-    '	"type"  : "AmbientLight",',
-    '	"color" : ' + str(getHex(ambient_color)),
-    '}'
+      'type': 'AmbientLight',
+      'color': getHex(ambient_color)
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 0 )
+    return output
     
 # #####################################################
 # Generate - Camera Object 
 # #####################################################
-def generate_default_camera_string(padding):
+def generate_default_camera():
     position = (100, 100, 100)
     near = 0.1
     far = 1000
     fov = 75
 
-    output = [
+    output = {
+      'type': 'PerspectiveCamera',
+      'fov': fov,
+      'near': near,
+      'far': far,
+      'position': getVector3( position ) 
+    }
 
-    '\t\t' + getLabelString( 'default_camera' ) + ' : {',
-    '	"type"     : "PerspectiveCamera",',
-    '	"fov"      : ' + str(fov) + ',',
-    '	"near"     : ' + str(near) + ',',
-    '	"far"      : ' + str(far) + ',',
-    '	"position" : ' + getVector3String( position ), 
-    ' }'
+    return output
 
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
-
-def generate_camera_string(node, padding):
+def generate_camera_object(node):
     camera = node.GetNodeAttribute()
 
     target_node = node.GetTarget()
@@ -1880,24 +1885,24 @@ def generate_camera_string(node, padding):
     near = camera.NearPlane.Get()
     far = camera.FarPlane.Get()
 
-    output = []
+    name = getObjectName( node )
+    output = {}
 
     if projection == "perspective":
 
         aspect = camera.PixelAspectRatio.Get()
         fov = camera.FieldOfView.Get()
 
-        output = [
+        output = {
 
-        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-        '	"type"     : "PerspectiveCamera",',
-        '	"fov"      : ' + str(fov) + ',',
-        '	"aspect"   : ' + str(aspect) + ',',
-        '	"near"     : ' + str(near) + ',',
-        '	"far"      : ' + str(far) + ',',
-        '	"position" : ' + getVector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
+          'type': 'PerspectiveCamera',
+          'fov': fov,
+          'aspect': aspect,
+          'near': near,
+          'far': far,
+          'position': getVector3( position )
 
-        ]
+        }
 
     elif projection == "orthogonal":
 
@@ -1906,26 +1911,25 @@ def generate_camera_string(node, padding):
         top = ""
         bottom = ""
 
-        output = [
+        output = {
 
-        '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-        '	"type"     : "OrthographicCamera",',
-        '	"left"     : ' + left + ',',
-        '	"right"    : ' + right + ',',
-        '	"top"      : ' + top + ',',
-        '	"bottom"   : ' + bottom + ',',
-        '	"near"     : ' + str(near) + ',',
-        '	"far"      : ' + str(far) + ',',
-        '	"position" : ' + getVector3String( position ) + ( ',' if node.GetChildCount() > 0 else '' )
+          'type': 'PerspectiveCamera',
+          'left': left,
+          'right': right,
+          'top': top,
+          'bottom': bottom,
+          'near': near,
+          'far': far,
+          'position': getVector3( position )
 
-        ]
+        }
 
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
 # #####################################################
 # Generate - Mesh Object 
 # #####################################################
-def generate_mesh_object_string(node, padding):
+def generate_mesh_object(node):
     mesh = node.GetNodeAttribute()
     transform = node.EvaluateLocalTransform()
     position = transform.GetT()
@@ -1956,25 +1960,22 @@ def generate_mesh_object_string(node, padding):
 
     skin_count = mesh.GetDeformerCount(FbxDeformer.eSkin)
 
-    output = [
+    output = {
+      'geometry': getGeometryName( node, True ),
+      'material': material_name,
+      'position': getVector3( position ),
+      'quaternion': getVector4( quaternion ),
+      'scale': getVector3( scale ),
+      'skin': skin_count > 0,
+      'visible': getObjectVisible( node ),
+    }
 
-    '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-    '	"geometry" : ' + getLabelString( getGeometryName( node, True ) ) + ',',
-    '	"material" : ' + getLabelString( material_name ) + ',',
-    '	"position" : ' + getVector3String( position ) + ',',
-    '	"quaternion" : ' + getVector4String( quaternion ) + ',',
-    '	"scale"	   : ' + getVector3String( scale ) + ',',
-    '	"skin"	 : ' + getBoolString( skin_count > 0 ) + ',',
-    '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
-
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
 # #####################################################
 # Generate - Object 
 # #####################################################
-def generate_object_string(node, padding):
+def generate_object(node):
     node_types = ["Unknown", "Null", "Marker", "Skeleton", "Mesh", "Nurbs", "Patch", "Camera", 
     "CameraStereo", "CameraSwitcher", "Light", "OpticalReference", "OpticalMarker", "NurbsCurve", 
     "TrimNurbsSurface", "Boundary", "NurbsSurface", "Shape", "LODGroup", "SubDiv", "CachedEffect", "Line"]
@@ -1991,89 +1992,80 @@ def generate_object_string(node, padding):
     else:
         node_type = node_types[node.GetNodeAttribute().GetAttributeType()]
 
-    output = [
+    name = getObjectName( node )
+    output = {
+      'fbx_type': node_type,
+      'position': getVector3( position ),
+      'quaternion': getVector4( quaternion ),
+      'scale': getVector3( scale ),
+      'visible': getObjectVisible( node )
+    }
 
-    '\t\t' + getLabelString( getObjectName( node ) ) + ' : {',
-    '	"fbx_type" : ' + getLabelString( node_type ) + ',',
-    '	"position" : ' + getVector3String( position ) + ',',
-    '	"quaternion" : ' + getVector4String( quaternion ) + ',',
-    '	"scale"	   : ' + getVector3String( scale ) + ',',
-    '	"visible"  : ' + getObjectVisible( node ) + ( ',' if node.GetChildCount() > 0 else '' )
-
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
 # #####################################################
 # Parse - Objects 
 # #####################################################
-def generate_object_hierarchy(node, object_list, pad, siblings_left):
+def generate_object_hierarchy(node, object_dict):
     object_count = 0
     if node.GetNodeAttribute() == None:
-        object_string = generate_object_string(node, pad)
-        object_list.append(object_string)
-        object_count += 1
+        object_data = generate_object(node)
     else:
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
-            object_string = generate_mesh_object_string(node, pad)
-            object_list.append(object_string)
-            object_count += 1
+            object_data = generate_mesh_object(node)
         elif attribute_type == FbxNodeAttribute.eLight:
-            object_string = generate_light_string(node, pad)
-            object_list.append(object_string)
-            object_count += 1
+            object_data = generate_light_object(node)
         elif attribute_type == FbxNodeAttribute.eCamera:
-            object_string = generate_camera_string(node, pad)
-            object_list.append(object_string)
-            object_count += 1
+            object_data = generate_camera_object(node)
         else:
-            object_string = generate_object_string(node, pad)
-            object_list.append(object_string)
-            object_count += 1
+            object_data = generate_object(node)
+
+    object_count += 1
+    object_name = getObjectName(node)
+
+    object_children = {}
+    for i in range(node.GetChildCount()):
+        object_count += generate_object_hierarchy(node.GetChild(i), object_children)
 
     if node.GetChildCount() > 0:
-      object_list.append( getPaddingString( pad + 1 ) + '\t\t"children" : {\n' )
+        # Having 'children' above other attributes is hard to read.
+        # We can send it to the bottom using the last letter of the alphabet 'z'. 
+        # This letter is removed from the final output.
+        if option_pretty_print:
+            object_data['zchildren'] = object_children
+        else:
+            object_data['children'] = object_children
 
-      for i in range(node.GetChildCount()):
-          object_count += generate_object_hierarchy(node.GetChild(i), object_list, pad + 2, node.GetChildCount() - i - 1)
-
-      object_list.append( getPaddingString( pad + 1 ) + '\t\t}' )
-    object_list.append( getPaddingString( pad ) + '\t\t}' + (',\n' if siblings_left > 0 else ''))
+    object_dict[object_name] = object_data
 
     return object_count
 
-def generate_scene_objects_string(scene):
+def generate_scene_objects(scene):
     object_count = 0
-    object_list = []
+    object_dict = {}
 
-    ambient_light = generate_ambient_light_string(scene)
+    ambient_light = generate_ambient_light(scene)
     if ambient_light:
-        if scene.GetNodeCount() > 0 or option_default_light or option_default_camera:
-            ambient_light += (',\n')
-        object_list.append(ambient_light)
+        object_dict['AmbientLight'] = ambient_light
         object_count += 1
 
     if option_default_light:
-        default_light = generate_default_light_string(0)
-        if scene.GetNodeCount() > 0 or option_default_camera:
-            default_light += (',\n')
-        object_list.append(default_light)
+        default_light = generate_default_light()
+        object_dict['DefaultLight'] = default_light
         object_count += 1
 
     if option_default_camera:
-        default_camera = generate_default_camera_string(0)
-        if scene.GetNodeCount() > 0:
-            default_camera += (',\n')
-        object_list.append(default_camera)
+        default_camera = generate_default_camera()
+        object_dict['DefaultCamera'] = default_camera
         object_count += 1
 
     node = scene.GetRootNode()
     if node:
         for i in range(node.GetChildCount()):
-            object_count += generate_object_hierarchy(node.GetChild(i), object_list, 0, node.GetChildCount() - i - 1)
+            object_count += generate_object_hierarchy(node.GetChild(i), object_dict)
 
-    return "\n".join(object_list), object_count
+    return object_dict, object_count
 
 # #####################################################
 # Parse - Poses
@@ -2091,8 +2083,7 @@ def get_local_pose_transform(pose, node_index):
     else:
         return pose.GetMatrix(node_index)
 
-def generate_pose_node_string(pose, node_index, padding):
-    node = pose.GetNode(node_index)
+def generate_pose_node_object(pose, node_index):
     transform = get_local_pose_transform(pose, node_index)
 
     t = FbxVector4()
@@ -2102,41 +2093,54 @@ def generate_pose_node_string(pose, node_index, padding):
 
     sign = transform.GetElements(t, q, sh, sc)
 
-    output = [
+    output = {
 
-    getLabelString( getObjectName( node ) ) + ' : {',
-    '	"position" : ' + getVector3String( t, False, True ) + ',',
-    '	"quaternion" : ' + getVector4String( q, False, True ) + ',',
-    '	"scale"	   : ' + getVector3String( sc, False, True ),
-    '}'
+      'position': getVector3( t ),
+      'quaternion': getVector4( q ),
+      'scale': getVector3( sc )
 
-    ]
+    }
 
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return output
 
-def generate_pose_string(pose, padding):
-    node_list = []
+def generate_pose_object(pose):
+    node_dict = {}
 
     for n in range(pose.GetCount()):
-        pose_node = generate_pose_node_string(pose, n, 1)
-        node_list.append(pose_node)
+        node = pose.GetNode(n)
+        pose_node = generate_pose_node_object(pose, n)
+        pose_name = getObjectName(node)
+        node_dict[pose_name] = pose_node
 
-    pose_nodes = generateMultiLineString( node_list, ',\n\t\t', padding )
-      
-    output = [ '\t{', pose_nodes, '}', ]
-
-    return generateMultiLineString( output, '\n\t\t', padding )
+    return node_dict
 
 def generate_pose_list(scene):
-    pose_list = []
+    pose_dict = {}
     
     for p in range(scene.GetPoseCount()):
         pose = scene.GetPose(p)
 
-        pose_string = generate_pose_string(pose, 0)
-        pose_list.append(pose_string)
+        pose_nodes = generate_pose_object(pose)
+        pose_name = getPoseName(pose)
 
-    return pose_list
+        pose_type = 'Unknown'
+        if pose.IsRestPose():
+          pose_type = 'RestPose'
+        if pose.IsBindPose():
+          pose_type = 'BindPose'
+
+        output = {
+          'type' : pose_type,
+        }
+
+        if option_pretty_print:
+            output['zchildren'] = pose_nodes
+        else:
+            output['children'] = pose_nodes
+
+        pose_dict[pose_name] = output
+
+    return pose_dict
 
 # #####################################################
 # Parse - Animations
@@ -2157,29 +2161,22 @@ def generate_animation_key_time_list(curve_node):
 
     return time_list
 
-def generate_keyframe_string(key_list, index, channel_size, padding):
-    if index % (channel_size + 1) == 0:
-        return '\n' + getPaddingString(padding) + str(round(key_list[index], 6))
+def generate_curve_node_object(node, curve_node, property_name, key_list, channel_count):
+
+    output = {
+      'object' : getObjectName( node ),
+      'property' : property_name,
+      'channels' : channel_count,
+    }
+
+    if option_pretty_print:
+      output['keys'] = NoIndentKeyframe(key_list, channel_count + 1)
     else:
-        return str(round(key_list[index], 6))
+      output['keys'] = key_list
+    
+    return output
 
-def generate_curve_node_string(node, curve_node, property_name, key_list, channel_count):
-    keys = ",".join(generate_keyframe_string(key_list, i, channel_count, 5) for i in range(len(key_list)))
-
-    output = [
-
-    '\t' + getLabelString( getAnimationCurveName( curve_node, True ) ) + ' : {',
-    '	"object" : ' + getLabelString( getObjectName( node ) ) + ',',
-    '	"property" : ' + getLabelString( property_name ) + ',',
-    '	"channels" : ' + str( channel_count ) + ',',
-    '	"keys" : ' + getArrayString( keys ),
-    '}'
-
-    ]
-
-    return generateMultiLineString( output, '\n\t\t', 1 )
-
-def generate_curve_string(channel, node, curve_node, stack):
+def generate_curve_object(channel, node, curve_node, stack):
     time_list = generate_animation_key_time_list(curve_node)
 
     if len(time_list) < 2:
@@ -2217,9 +2214,9 @@ def generate_curve_string(channel, node, curve_node, stack):
             keyframes.append(sc[2])
 
     if channel == "rotation":
-        return generate_curve_node_string(node, curve_node, channel, keyframes, 4)
+        return generate_curve_node_object(node, curve_node, channel, keyframes, 4)
     else:
-        return generate_curve_node_string(node, curve_node, channel, keyframes, 3)
+        return generate_curve_node_object(node, curve_node, channel, keyframes, 3)
 
 def find_stack_for_layer(scene, layer):
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
@@ -2232,7 +2229,7 @@ def find_stack_for_layer(scene, layer):
                 return stack
 
 def generate_animation_curve_list(scene):
-    curve_list = []
+    curve_dict = {}
 
     unrollFilter = FbxAnimCurveFilterUnroll()
     reduceFilter = FbxAnimCurveFilterKeyReducer()
@@ -2264,20 +2261,23 @@ def generate_animation_curve_list(scene):
             node = scene.GetNode(n)
                     
             curve_node = node.LclTranslation.GetCurveNode(layer, True)
-            curve_string = generate_curve_string('position', node, curve_node, stack)
-            curve_list.append(curve_string)
+            curve_object = generate_curve_object('position', node, curve_node, stack)
+            curve_name = getAnimationCurveName( curve_node, True )
+            curve_dict[curve_name] = curve_object
 
             curve_node = node.LclRotation.GetCurveNode(layer, True)
-            curve_string = generate_curve_string('rotation', node, curve_node, stack)
-            curve_list.append(curve_string)
+            curve_object = generate_curve_object('rotation', node, curve_node, stack)
+            curve_name = getAnimationCurveName( curve_node, True )
+            curve_dict[curve_name] = curve_object
 
             curve_node = node.LclScaling.GetCurveNode(layer, True)
-            curve_string = generate_curve_string('scale', node, curve_node, stack)
-            curve_list.append(curve_string)
+            curve_object = generate_curve_object('scale', node, curve_node, stack)
+            curve_name = getAnimationCurveName( curve_node, True )
+            curve_dict[curve_name] = curve_object
 
-    return curve_list
+    return curve_dict
 
-def generate_animation_layer_string(layer, scene):
+def generate_animation_layer_object(layer, scene):
     stack = find_stack_for_layer(scene, layer)
     scene.GetEvaluator().SetContext(stack)
 
@@ -2300,25 +2300,24 @@ def generate_animation_layer_string(layer, scene):
         curve_string = getAnimationCurveName(curve_node, True)
         curve_list.append(curve_string)
         
-    output = [
-    '\t' + getLabelString( getAnimationLayerName( layer, True ) ) + ' : {',
-    '	"blendMode" : ' + getLabelString( blend_mode ) + ',',
-    '	"blendWeight" : ' + str( layer.Weight.Get() / 100 ) + ',',
-    '	"curves" : ' + getArrayString( ",".join(getLabelString( c ) for c in curve_list) ),
-    '}'
-    ]
+    output = {
+      'blendMode' : blend_mode,
+      'blendWeight' : layer.Weight.Get() / 100,
+      'curves' : curve_list
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 1 )
+    return output
 
 def generate_animation_layer_list(scene):
-    layer_list = []
+    layer_dict = {}
     layer_count = scene.GetSrcObjectCount(FbxAnimLayer.ClassId)
     for j in range(layer_count):
         layer = scene.GetSrcObject(FbxAnimLayer.ClassId, j)
-        layer_string = generate_animation_layer_string(layer, scene)
-        layer_list.append(layer_string)
+        layer_object = generate_animation_layer_object(layer, scene)
+        layer_name = getAnimationLayerName( layer, True )
+        layer_dict[layer_name] = layer_object
 
-    return layer_list
+    return layer_dict
 
 def generate_animation_string(animation, scene):
     time_span = animation.GetLocalTimeSpan() 
@@ -2332,25 +2331,24 @@ def generate_animation_string(animation, scene):
         layer_string = getAnimationLayerName(layer, True)
         layer_list.append(layer_string)
 
-    output = [
-    '\t' + getLabelString( getAnimationName( animation ) ) + ' : {',
-    '	"start" : ' + str( start_time.GetSecondDouble() ) + ',',
-    '	"stop" : ' + str( stop_time.GetSecondDouble() ) + ',',
-    '	"layers" : ' + getArrayString( ",".join(getLabelString( l ) for l in layer_list) ),
-    '}'
-    ]
+    output = {
+      'start' : start_time.GetSecondDouble(),
+      'stop' : stop_time.GetSecondDouble(),
+      'layers' : layer_list
+    }
 
-    return generateMultiLineString( output, '\n\t\t', 1 )
+    return output
 
 def generate_animation_list(scene):
-    animation_list = []
+    animation_dict = {}
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
     for i in range(animation_count):
         stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-        animation_string = generate_animation_string(stack, scene)
-        animation_list.append(animation_string)
+        animation_object = generate_animation_string(stack, scene)
+        animation_name = getAnimationName( stack )
+        animation_dict[animation_name] = animation_object
 
-    return animation_list
+    return animation_dict
 
 def generate_skeleton_list_from_hierarchy(node, skeleton_list):
     if node.GetNodeAttribute() == None:
@@ -2470,166 +2468,98 @@ def process_mesh_skeleton_hierarchy(scene, mesh):
 # #####################################################
 def extract_scene(scene, filename):
     global_settings = scene.GetGlobalSettings()
-    objects, nobjects = generate_scene_objects_string(scene)
+    objects, nobjects = generate_scene_objects(scene)
 
-    materials = generate_material_list(scene)
-    textures = generate_texture_list(scene)
-    geometries = generate_geometry_list(scene)
-    embeds = generate_embed_list(scene)
-    fogs = []
+    textures = generate_texture_dict(scene)
+    materials = generate_material_dict(scene)
+    geometries = generate_geometry_dict(scene)
+    embeds = generate_embed_dict(scene)
 
     ntextures = len(textures)
     nmaterials = len(materials)
     ngeometries = len(geometries)
 
-    position = getVector3String( (0,0,0) )
-    rotation = getVector3String( (0,0,0) )
-    scale    = getVector3String( (1,1,1) )
+    position = getVector3( (0,0,0) )
+    rotation = getVector3( (0,0,0) )
+    scale    = getVector3( (1,1,1) )
 
     camera_names = generate_camera_name_list(scene)
     scene_settings = scene.GetGlobalSettings()
 
-    #TODO: this might exist as part of the FBX spec
-    bgcolor = getVector3String( (0.667,0.667,0.667) )
-    bgalpha = 1
-
     # This does not seem to be any help here
     # global_settings.GetDefaultCamera() 
 
-    defcamera = getLabelString(camera_names[0] if len(camera_names) > 0 else "")
+    defcamera = camera_names[0] if len(camera_names) > 0 else ""
     if option_default_camera:
-      defcamera = getLabelString('default_camera')
+      defcamera = 'default_camera'
 
-    #TODO: extract fog info from scene
-    deffog = getLabelString("")
+    poses = []
+    animation_takes = {}
+    animation_layers = {}
+    animation_curves = {}
 
-    poses = ""
-    animation_takes = ""
-    animation_layers = ""
-    animation_curves = ""
     if option_animation:
-        pose_list = generate_pose_list( scene )
-        poses = generateMultiLineString( pose_list, ",\n\n\t", 0 )
+        poses = generate_pose_list( scene )
+        animation_takes = generate_animation_list( scene )
+        animation_layers = generate_animation_layer_list( scene )
+        animation_curves = generate_animation_curve_list( scene )
 
-        animation_take_list = generate_animation_list( scene )
-        animation_takes = generateMultiLineString( animation_take_list, ",\n\n\t", 0 )
+    animation = {
+      'takes' : animation_takes,
+      'layers' : animation_layers,
+      'curves' : animation_curves
+    }
 
-        animation_layer_list = generate_animation_layer_list( scene )
-        animation_layers = generateMultiLineString( animation_layer_list, ",\n\n\t", 0 )
+    metadata = {
+      'formatVersion': 5,
+      'type': 'scene',
+      'generatedBy': 'convert-to-threejs.py',
+      'objects': nobjects,
+      'geometries': ngeometries,
+      'materials': nmaterials,
+      'textures': ntextures
+    }
 
-        animation_curve_list = generate_animation_curve_list( scene )
-        animation_curves = generateMultiLineString( animation_curve_list, ",\n\n\t", 0 )
+    transform = {
+      'position' : position,
+      'rotation' : rotation,
+      'scale' : scale
+    }
 
-    geometries = generateMultiLineString( geometries, ",\n\n\t", 0 )
-    materials = generateMultiLineString( materials, ",\n\n\t", 0 )
-    textures = generateMultiLineString( textures, ",\n\n\t", 0 )
-    embeds = generateMultiLineString( embeds, ",\n\n\t", 0 )
-    fogs = generateMultiLineString( fogs, ",\n\n\t", 0 )
+    defaults = {
+      'camera' : defcamera,
+      'fog' : ''
+    }
 
-    output = [
+    output = {
+      'objects': objects,
+      'geometries': geometries,
+      'materials': materials,
+      'textures': textures,
+      'embeds': embeds,
+      'poses': poses,
+      'transform': transform,
+      'defaults': defaults,
+    }
 
-    '{',
-    '	"metadata": {',
-    '		"formatVersion" : 4.0,',
-    '		"type"		: "scene",',
-    '		"generatedBy"	: "convert-to-threejs.py",',
-    '		"objects"       : ' + str(nobjects) + ',',
-    '		"geometries"    : ' + str(ngeometries) + ',',
-    '		"materials"     : ' + str(nmaterials) + ',',
-    '		"textures"      : ' + str(ntextures),
-    '	},',
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
 
-    '',
-    '	"urlBaseType": "relativeToScene",',
-    '',
+    if option_pretty_print:
+        output['zanimation'] = animation
+    else:
+        output['animation'] = animation
 
-    '	"objects" :',
-    '	{',
-    objects,
-    '	},',
-    '',
-
-    '	"geometries" :',
-    '	{',
-    '\t' + 	geometries,
-    '	},',
-    '',
-
-    '	"materials" :',
-    '	{',
-    '\t' + 	materials,
-    '	},',
-    '',
-
-    '	"textures" :',
-    '	{',
-    '\t' + 	textures,
-    '	},',
-    '',
-
-    '	"embeds" :',
-    '	{',
-    '\t' + 	embeds,
-    '	},',
-    '',
-
-    '	"poses" :',
-    '	[',
-    '\t' + 	poses,
-    '	],',
-    '',
-
-    '	"animations" :',
-    '	{',
-    '		"takes" : {',
-    '\t' + 	animation_takes,
-    '		},',
-    '',
-
-    '		"layers" : {',
-    '\t' + 	animation_layers,
-    '		},',
-    '',
-
-    '		"curves" : {',
-    '\t' + 	animation_curves,
-    '		}',
-    '	},',
-    '',
-
-    '	"fogs" :',
-    '	{',
-    '\t' + 	fogs,
-    '	},',
-    '',
-
-    '	"transform" :',
-    '	{',
-    '		"position"  : ' + position + ',',
-    '		"rotation"  : ' + rotation + ',',
-    '		"scale"     : ' + scale,
-    '	},',
-    '',
-
-    '	"defaults" :',
-    '	{',
-    '		"bgcolor" : ' + str(bgcolor) + ',',
-    '		"bgalpha" : ' + str(bgalpha) + ',',
-    '		"camera"  : ' + defcamera + ',',
-    '		"fog"  	  : ' + deffog,
-    '	}',
-    '}'
-
-    ]
-
-    return "\n".join(output)
+    return output
 
 # #####################################################
 # Parse - Geometry (non-scene output) 
 # #####################################################
 def extract_geometry(scene, filename):
-    mesh_string = generate_mesh_string_for_non_scene_output(scene)
-    return mesh_string
+    output = generate_non_scene_output(scene)
+    return output
 
 # #####################################################
 # file helpers
@@ -2783,12 +2713,13 @@ if __name__ == "__main__":
 
     parser.add_option('-t', '--triangulate', action='store_true', dest='triangulate', help="force quad geometry into triangles", default=False)
     parser.add_option('-x', '--ignore-textures', action='store_true', dest='notextures', help="don't include texture references in output file", default=False)
-    parser.add_option('-p', '--force-prefix', action='store_true', dest='prefix', help="prefix all object names in output file", default=False)
+    parser.add_option('-u', '--force-prefix', action='store_true', dest='prefix', help="prefix all object names in output file to ensure uniqueness", default=False)
     parser.add_option('-f', '--flatten-scene', action='store_true', dest='geometry', help="merge all geometries and apply node transforms", default=False)
     parser.add_option('-a', '--include-animations', action='store_true', dest='animation', help="include animation data in output file", default=False)
     parser.add_option('-m', '--manual-mtl-parse', action='store_true', dest='mtl', help="the fbx sdk may fail to bind all textures for materials, parse .mtl files manually", default=False)
     parser.add_option('-c', '--add-camera', action='store_true', dest='defcamera', help="include default camera in output scene", default=False)
     parser.add_option('-l', '--add-light', action='store_true', dest='deflight', help="include default light in output scene", default=False)
+    parser.add_option('-p', '--pretty-print', action='store_true', dest='pretty', help="prefix all object names in output file", default=False)
 
     (options, args) = parser.parse_args()
 
@@ -2800,6 +2731,7 @@ if __name__ == "__main__":
     option_default_light = options.deflight 
     option_animation = options.animation 
     option_parse_mtl = options.mtl 
+    option_pretty_print = options.pretty 
 
     # Prepare the FBX SDK.
     sdk_manager, scene = InitializeSdkObjects()
@@ -2839,8 +2771,30 @@ if __name__ == "__main__":
         else:
             output_content = extract_scene(scene, os.path.basename(args[0]))
 
+        if option_pretty_print:
+            output_string = json.dumps(output_content, indent=4, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
+            # turn array strings into arrays
+            output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
+            output_string = re.sub('(\n\s*)\"(\[.*\])\"', r'\1\2', output_string)
+            output_string = re.sub('(\n\s*)\"{KEYFRAME}(.*)\"', r'\1\2', output_string)
+            # replace '0metadata' with metadata
+            output_string = re.sub('0metadata', r'metadata', output_string)
+            # replace 'zchildren' with children
+            output_string = re.sub('zchildren', r'children', output_string)
+            # replace 'zanimation' with animation
+            output_string = re.sub('zanimation', r'animation', output_string)
+            # add an extra newline after '"children": {'
+            output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
+            # add an extra newline after '},'
+            output_string = re.sub('},\s*\n', r'},\n\n', output_string)
+            # add an extra newline after '\n\s*],'
+            output_string = re.sub('(\n\s*)],\s*\n', r'\1],\n\n', output_string)
+        else:
+            output_string = json.dumps(output_content, separators=(',', ': '), sort_keys=True)
+
+
         output_path = os.path.join(os.getcwd(), args[1])
-        write_file(output_path, output_content)
+        write_file(output_path, output_string)
 
         print("\nExported Three.js file to:\n%s\n" % output_path)
 
