@@ -20,6 +20,7 @@ option_default_light = False
 option_animation = False
 option_parse_mtl = False
 option_pretty_print = False
+option_euler_rotations = False
 
 converter = None
 mtl_library = None
@@ -33,10 +34,11 @@ class NoIndent(object):
         self.separator = separator
         self.value = value
 
-class NoIndentKeyframe(object):
-    def __init__(self, value, size):
+class ChunkedIndent(object):
+    def __init__(self, value, chunk_size = 15, force_rounding = False):
         self.value = value
-        self.size = size
+        self.size = chunk_size
+        self.force_rounding = force_rounding
 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -45,12 +47,15 @@ class CustomEncoder(json.JSONEncoder):
                 return '[ %s ]' % obj.separator.join(str(f) for f in obj.value)
             else:
                 return obj.value
-        elif isinstance(obj, NoIndentKeyframe):
+        elif isinstance(obj, ChunkedIndent):
             if obj.value:
                 # turn the flat array into an array of arrays where each subarray is a single keyframe
                 # then string concat the keyframe values, delimited with a ', ' and round the values
-                # finally append '{KEYFRAME}' so that we can find the keyframes with regex later
-                return ['{KEYFRAME}%s' % ', '.join(str(round(f, 6)) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
+                # finally append '{CHUNK}' so that we can find the keyframes with regex later
+                if obj.force_rounding:
+                    return ['{CHUNK}%s' % ', '.join(str(round(f, 6)) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
+                else:
+                    return ['{CHUNK}%s' % ', '.join(str(f) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
             else:
                 return obj.value
         else:
@@ -258,7 +263,7 @@ def generate_uvs(uv_layers):
             tmp.append(uv[0])
             tmp.append(uv[1])
         if option_pretty_print:
-            layer = NoIndent(tmp)
+            layer = ChunkedIndent(tmp)
         else:
             layer = tmp
         layers.append(layer)
@@ -1101,14 +1106,14 @@ def generate_mesh_string_for_scene_output(node):
     # disable json indenting when pretty printing for the arrays
     if option_pretty_print:
         nuvs = NoIndent(nuvs)
-        weights = NoIndent(weights)
-        indices = NoIndent(indices)
         aabb_min = NoIndent(aabb_min, ', ')
         aabb_max = NoIndent(aabb_max, ', ')
-        vertices = NoIndent(vertices)
-        normal_values = NoIndent(normal_values)
-        color_values = NoIndent(color_values)
-        faces = NoIndent(faces)
+        weights = ChunkedIndent(weights, 15, True)
+        indices = ChunkedIndent(indices, 30)
+        vertices = ChunkedIndent(vertices, 15, True)
+        normal_values = ChunkedIndent(normal_values, 15, True)
+        color_values = ChunkedIndent(color_values, 15, True)
+        faces = ChunkedIndent(faces, 30)
   
     metadata = {
       'vertices' : nvertices,
@@ -2170,7 +2175,7 @@ def generate_curve_node_object(node, curve_node, property_name, key_list, channe
     }
 
     if option_pretty_print:
-      output['keys'] = NoIndentKeyframe(key_list, channel_count + 1)
+      output['zkeys'] = ChunkedIndent(key_list, channel_count + 1, True)
     else:
       output['keys'] = key_list
     
@@ -2186,10 +2191,13 @@ def generate_curve_object(channel, node, curve_node, stack):
         time_list.append(start_time)
         time_list.append(stop_time)
 
+    channel_length = 3
+    if channel == "rotation":
+        channel_length = 4
+
     keyframes = []
 
     for time in time_list:
-        keyframes.append(time.GetSecondDouble())
 
         t = FbxVector4()
         sh = FbxVector4()
@@ -2199,24 +2207,65 @@ def generate_curve_object(channel, node, curve_node, stack):
         transform = FbxMatrix(node.EvaluateLocalTransform(time))
         transform.GetElements(t, q, sh, sc)
 
-        if channel == "position":
-            keyframes.append(t[0])
-            keyframes.append(t[1])
-            keyframes.append(t[2])
-        elif channel == "rotation":
-            keyframes.append(q[0])
-            keyframes.append(q[1])
-            keyframes.append(q[2])
-            keyframes.append(q[3])
-        elif channel == "scale":
-            keyframes.append(sc[0])
-            keyframes.append(sc[1])
-            keyframes.append(sc[2])
+        prev_index = len(keyframes) - channel_length;
+        if len(keyframes) < ((channel_length + 1 ) * 2):
+            prev_index = -1
 
-    if channel == "rotation":
-        return generate_curve_node_object(node, curve_node, channel, keyframes, 4)
-    else:
-        return generate_curve_node_object(node, curve_node, channel, keyframes, 3)
+        if channel == "position":
+            if prev_index > 0 and \
+               round(keyframes[prev_index + 0], 5) == round(t[0], 5) and \
+               round(keyframes[prev_index + 1], 5) == round(t[1], 5) and \
+               round(keyframes[prev_index + 2], 5) == round(t[2], 5): 
+                pass
+            else:
+                keyframes.append(time.GetSecondDouble())
+                keyframes.append(t[0])
+                keyframes.append(t[1])
+                keyframes.append(t[2])
+        elif channel == "rotation":
+            if option_euler_rotations:
+                r = q.DecomposeSphericalXYZ() * 180 
+                if prev_index > 0 and \
+                   round(keyframes[prev_index + 0], 5) == round(r[0], 5) and \
+                   round(keyframes[prev_index + 1], 5) == round(r[1], 5) and \
+                   round(keyframes[prev_index + 2], 5) == round(r[2], 5):
+                    pass
+                else:
+                    keyframes.append(time.GetSecondDouble())
+                    keyframes.append(r[0])
+                    keyframes.append(r[1])
+                    keyframes.append(r[2])
+                channel_length = 3
+            else:
+                if prev_index > 0 and \
+                   round(keyframes[prev_index + 0], 5) == round(q[0], 5) and \
+                   round(keyframes[prev_index + 1], 5) == round(q[1], 5) and \
+                   round(keyframes[prev_index + 2], 5) == round(q[2], 5) and \
+                   round(keyframes[prev_index + 3], 5) == round(q[3], 5):
+                    pass
+                else:
+                    keyframes.append(time.GetSecondDouble())
+                    keyframes.append(q[0])
+                    keyframes.append(q[1])
+                    keyframes.append(q[2])
+                    keyframes.append(q[3])
+        elif channel == "scale":
+            if prev_index > 0 and \
+               round(keyframes[prev_index + 0], 5) == round(sc[0], 5) and \
+               round(keyframes[prev_index + 1], 5) == round(sc[1], 5) and \
+               round(keyframes[prev_index + 2], 5) == round(sc[2], 5): 
+                pass
+            else:
+                keyframes.append(time.GetSecondDouble())
+                keyframes.append(sc[0])
+                keyframes.append(sc[1])
+                keyframes.append(sc[2])
+
+    prev_index = len(keyframes) - channel_length;
+    if len(keyframes) > (channel_length + 1 ):
+        keyframes[prev_index - 1] = time.GetSecondDouble()
+
+    return generate_curve_node_object(node, curve_node, channel, keyframes, channel_length)
 
 def find_stack_for_layer(scene, layer):
     animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
@@ -2235,6 +2284,12 @@ def generate_animation_curve_list(scene):
     reduceFilter = FbxAnimCurveFilterKeyReducer()
     syncFilter = FbxAnimCurveFilterKeySync()
 
+    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
+    for i in range(animation_count):
+        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
+        syncFilter.Apply(stack)
+        unrollFilter.Apply(stack)
+
     '''
     # Removes too many keys
     reduceFilter.SetKeySync(True)
@@ -2243,12 +2298,6 @@ def generate_animation_curve_list(scene):
         stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
         reduceFilter.Apply(stack)
     '''
-
-    animation_count = scene.GetSrcObjectCount(FbxAnimStack.ClassId)
-    for i in range(animation_count):
-        stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
-        syncFilter.Apply(stack)
-        unrollFilter.Apply(stack)
       
     layer_count = scene.GetSrcObjectCount(FbxAnimLayer.ClassId)
 
@@ -2720,6 +2769,7 @@ if __name__ == "__main__":
     parser.add_option('-c', '--add-camera', action='store_true', dest='defcamera', help="include default camera in output scene", default=False)
     parser.add_option('-l', '--add-light', action='store_true', dest='deflight', help="include default light in output scene", default=False)
     parser.add_option('-p', '--pretty-print', action='store_true', dest='pretty', help="prefix all object names in output file", default=False)
+    parser.add_option('-e', '--euler-rotations', action='store_true', dest='euler', help="output euler angles for animation curves", default=False)
 
     (options, args) = parser.parse_args()
 
@@ -2732,6 +2782,7 @@ if __name__ == "__main__":
     option_animation = options.animation 
     option_parse_mtl = options.mtl 
     option_pretty_print = options.pretty 
+    option_euler_rotations = options.euler
 
     # Prepare the FBX SDK.
     sdk_manager, scene = InitializeSdkObjects()
@@ -2772,17 +2823,19 @@ if __name__ == "__main__":
             output_content = extract_scene(scene, os.path.basename(args[0]))
 
         if option_pretty_print:
-            output_string = json.dumps(output_content, indent=4, cls = CustomEncoder, separators=(',', ': '), sort_keys=True)
+            output_string = json.dumps(output_content, indent=4, cls=CustomEncoder, separators=(',', ': '), sort_keys=True)
             # turn array strings into arrays
             output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
             output_string = re.sub('(\n\s*)\"(\[.*\])\"', r'\1\2', output_string)
-            output_string = re.sub('(\n\s*)\"{KEYFRAME}(.*)\"', r'\1\2', output_string)
+            output_string = re.sub('(\n\s*)\"{CHUNK}(.*)\"', r'\1\2', output_string)
             # replace '0metadata' with metadata
             output_string = re.sub('0metadata', r'metadata', output_string)
             # replace 'zchildren' with children
             output_string = re.sub('zchildren', r'children', output_string)
             # replace 'zanimation' with animation
             output_string = re.sub('zanimation', r'animation', output_string)
+            # replace 'zkeys' with keys
+            output_string = re.sub('zkeys', r'keys', output_string)
             # add an extra newline after '"children": {'
             output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
             # add an extra newline after '},'
