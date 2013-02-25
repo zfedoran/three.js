@@ -114,12 +114,20 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
     if ( data.metadata ) {
       var version = data.metadata.formatVersion;
 
-      if ( version <= 4.0 && data.animations ) {
+      if ( version >= 5.0 && data.animations ) {
 
         var takes = data.animations.takes;
         var layers = data.animations.layers;
         var curves = data.animations.curves;
-        var pose = data.poses[0];
+
+        for (var key in data.poses) {
+          var pose = data.poses[key];
+          if ( pose.type == "BindPose" ) {
+            var current_pose = pose.children;
+            break;
+          }
+        }
+
         var skinning = json.skinning;
 
         var ntakes = Object.keys(takes).length;
@@ -148,8 +156,8 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                 parent_index = skinning.bones.indexOf(bone_node._parent._name);
               }
 
-              if (pose[bone_name]) {
-                bone_node = pose[bone_name];
+              if (current_pose[bone_name]) {
+                bone_node = current_pose[bone_name];
               }
               var bone = {
                 "parent" : parent_index,

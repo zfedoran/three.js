@@ -27,45 +27,76 @@ mtl_library = None
 mtl_texture_count = 0
 
 # #####################################################
-# Custom JSON format encoders
+# Pretty Printing Hacks
 # #####################################################
+
+# Force an array to be printed fully on a single line
 class NoIndent(object):
     def __init__(self, value, separator = ','):
         self.separator = separator
         self.value = value
+    def encode(self):
+        if not self.value:
+            return None
+        return '[ %s ]' % self.separator.join(str(f) for f in self.value)
 
+# Force an array into chunks rather than printing each element on a new line
 class ChunkedIndent(object):
     def __init__(self, value, chunk_size = 15, force_rounding = False):
         self.value = value
         self.size = chunk_size
         self.force_rounding = force_rounding
+    def encode(self):
+        # Turn the flat array into an array of arrays where each subarray is of
+        # length chunk_size. Then string concat the values in the chunked 
+        # arrays, delimited with a ', ' and round the values finally append 
+        # '{CHUNK}' so that we can find the strings with regex later
+        if not self.value:
+            return None
+        if self.force_rounding:
+            return ['{CHUNK}%s' % ', '.join(str(round(f, 6)) for f in self.value[i:i+self.size]) for i in range(0, len(self.value), self.size)]
+        else:
+            return ['{CHUNK}%s' % ', '.join(str(f) for f in self.value[i:i+self.size]) for i in range(0, len(self.value), self.size)]
 
+# This custom encoder looks for instances of NoIndent or ChunkedIndent. 
+# When it finds 
 class CustomEncoder(json.JSONEncoder):
     def default(self, obj):
-        if isinstance(obj, NoIndent):
-            if obj.value:
-                return '[ %s ]' % obj.separator.join(str(f) for f in obj.value)
-            else:
-                return obj.value
-        elif isinstance(obj, ChunkedIndent):
-            if obj.value:
-                # turn the flat array into an array of arrays where each subarray is a single keyframe
-                # then string concat the keyframe values, delimited with a ', ' and round the values
-                # finally append '{CHUNK}' so that we can find the keyframes with regex later
-                if obj.force_rounding:
-                    return ['{CHUNK}%s' % ', '.join(str(round(f, 6)) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
-                else:
-                    return ['{CHUNK}%s' % ', '.join(str(f) for f in obj.value[i:i+obj.size]) for i in range(0, len(obj.value), obj.size)]
-            else:
-                return obj.value
+        if isinstance(obj, NoIndent) or isinstance(obj, ChunkedIndent):
+            return obj.encode()
         else:
             return json.JSONEncoder.default(self, obj)
 
+def executeRegexHacks(output_string):
+    # turn strings of arrays into arrays (remove the double quotes)
+    output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
+    output_string = re.sub('(\n\s*)\"(\[.*\])\"', r'\1\2', output_string)
+    output_string = re.sub('(\n\s*)\"{CHUNK}(.*)\"', r'\1\2', output_string)
+
+    # replace '0metadata' with metadata
+    output_string = re.sub('0metadata', r'metadata', output_string)
+    # replace 'zchildren' with children
+    output_string = re.sub('zchildren', r'children', output_string)
+    # replace 'zanimations' with animations
+    output_string = re.sub('zanimations', r'animations', output_string)
+    # replace 'zkeys' with keys
+    output_string = re.sub('zkeys', r'keys', output_string)
+
+    # add an extra newline after '"children": {'
+    output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
+    # add an extra newline after '},'
+    output_string = re.sub('},\s*\n', r'},\n\n', output_string)
+    # add an extra newline after '\n\s*],'
+    output_string = re.sub('(\n\s*)],\s*\n', r'\1],\n\n', output_string)
+
+    return output_string
+
 # #####################################################
-# Templates
+# Object Serializers
 # #####################################################
-def getVector2(v, round_vector = False):
-    # FbxVector2 is not JSON serializable
+
+# FbxVector2 is not JSON serializable
+def serializeVector2(v, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -78,8 +109,8 @@ def getVector2(v, round_vector = False):
     else:
         return [v[0], v[1]]
 
-def getVector3(v, round_vector = False):
-    # FbxVector3 is not JSON serializable
+# FbxVector3 is not JSON serializable
+def serializeVector3(v, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -94,8 +125,8 @@ def getVector3(v, round_vector = False):
     else:
         return [v[0], v[1], v[2]]
 
-def getVector4(v, round_vector = False):
-    # FbxVector4 is not JSON serializable
+# FbxVector4 is not JSON serializable
+def serializeVector4(v, round_vector = False):
     # JSON does not support NaN or Inf
     if math.isnan(v[0]) or math.isinf(v[0]):
         v[0] = 0
@@ -114,6 +145,38 @@ def getVector4(v, round_vector = False):
 
 # #####################################################
 # Helpers
+# #####################################################
+def getRadians(v):
+    return ((v[0]*math.pi)/180, (v[1]*math.pi)/180, (v[2]*math.pi)/180)
+
+def getHex(c):
+    color = (int(c[0]*255) << 16) + (int(c[1]*255) << 8) + int(c[2]*255)
+    return color
+
+def setBit(value, position, on):
+    if on:
+        mask = 1 << position
+        return (value | mask)
+    else:
+        mask = ~(1 << position)
+        return (value & mask)
+    
+def generate_uvs(uv_layers):
+    layers = []
+    for uvs in uv_layers:
+        tmp = []
+        for uv in uvs:
+            tmp.append(uv[0])
+            tmp.append(uv[1])
+        if option_pretty_print:
+            layer = ChunkedIndent(tmp)
+        else:
+            layer = tmp
+        layers.append(layer)
+    return layers
+
+# #####################################################
+# Object Name Helpers
 # #####################################################
 def hasUniqueName(o, class_id):
     scene = o.GetScene()
@@ -185,90 +248,12 @@ def getMtlTextureName(texture_name, texture_id, force_prefix = False):
         prefix = "Texture_%s_" % texture_id
     return prefix + texture_name
 
-# TODO: this could be more DRY
-def getGeometryName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Geometry_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
+def getPrefixedName(o, prefix):
+    return (prefix + '_%s_') % o.GetUniqueID() + o.GetName()
 
-def getEmbedName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Embed_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
-
-def getAnimationName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Animation_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
-    
-def getAnimationLayerName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Layer_%s" % o.GetUniqueID()
-    return prefix 
-
-def getAnimationCurveName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Curve_%s" % o.GetUniqueID()
-    return prefix 
-
-def getPoseName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Pose_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
-
-def getFogName(o, force_prefix = False):
-    prefix = ""
-    if option_prefix or force_prefix:
-        prefix = "Fog_%s_" % o.GetUniqueID()
-    return prefix + o.GetName()
-
-def getObjectVisible(n):
-    return True
-    
-def getRadians(v):
-    return ((v[0]*math.pi)/180, (v[1]*math.pi)/180, (v[2]*math.pi)/180)
-
-def getHex(c):
-    color = (int(c[0]*255) << 16) + (int(c[1]*255) << 8) + int(c[2]*255)
-    return color
-
-def setBit(value, position, on):
-    if on:
-        mask = 1 << position
-        return (value | mask)
-    else:
-        mask = ~(1 << position)
-        return (value & mask)
-
-def convert_fbx_color(color):
-    return [color.mRed, color.mGreen, color.mBlue, color.mAlpha]
-    
-def convert_fbx_vec2(v):
-    return [v[0], v[1]]
-
-def convert_fbx_vec3(v):
-    return [v[0], v[1], v[2]]
-    
-def generate_uvs(uv_layers):
-    layers = []
-    for uvs in uv_layers:
-        tmp = []
-        for uv in uvs:
-            tmp.append(uv[0])
-            tmp.append(uv[1])
-        if option_pretty_print:
-            layer = ChunkedIndent(tmp)
-        else:
-            layer = tmp
-        layers.append(layer)
-    return layers
-
+# #####################################################
+# Bounding Box 
+# #####################################################
 def generate_bounding_box(vertices):
     minx = float('inf')
     miny = float('inf')
@@ -295,7 +280,7 @@ def generate_bounding_box(vertices):
     return [minx, miny, minz], [maxx, maxy, maxz]
 
 # #####################################################
-# Generate - Triangles 
+# Triangulation 
 # #####################################################
 def triangulate_node_hierarchy(node):
     node_attribute = node.GetNodeAttribute();
@@ -318,7 +303,7 @@ def triangulate_scene(scene):
             triangulate_node_hierarchy(node.GetChild(i))
 
 # #####################################################
-# Generate - Material String 
+# Generate Material Object
 # #####################################################
 def generate_texture_bindings(material_property, material_params):
     # FBX to Three.js texture types 
@@ -506,7 +491,7 @@ def generate_proxy_material_object(node, material_names):
     return output
 
 # #####################################################
-# Parse - Materials 
+# Find Scene Materials
 # #####################################################
 def extract_materials_from_node(node, material_dict):
     name = node.GetName()
@@ -566,7 +551,7 @@ def generate_material_dict(scene):
     return material_dict
 
 # #####################################################
-# Generate - Texture String 
+# Generate Texture Object 
 # #####################################################
 def generate_texture_object(texture):
 
@@ -583,8 +568,8 @@ def generate_texture_object(texture):
     output = {
 
       'url': url,
-      'repeat': getVector2( (1,1) ),
-      'offset': getVector2( texture.GetUVTranslation() ),
+      'repeat': serializeVector2( (1,1) ),
+      'offset': serializeVector2( texture.GetUVTranslation() ),
       'magFilter': 'LinearFilter',
       'minFilter': 'LinearMipMapLinearFilter',
       'anisotropy': True
@@ -598,8 +583,8 @@ def generate_mtl_texture_object(texture):
     output = {
 
       'url': texture,
-      'repeat': getVector2( (1,1) ),
-      'offset': getVector2( (0,0) ),
+      'repeat': serializeVector2( (1,1) ),
+      'offset': serializeVector2( (0,0) ),
       'magFilter': 'LinearFilter',
       'minFilter': 'LinearMipMapLinearFilter',
       'anisotropy': True
@@ -609,7 +594,7 @@ def generate_mtl_texture_object(texture):
     return output
 
 # #####################################################
-# Parse - Textures 
+# Find Scene Textures
 # #####################################################
 def extract_material_textures(material_property, texture_dict):
     if material_property.IsValid():
@@ -706,7 +691,7 @@ def generate_texture_dict(scene):
     return texture_dict
 
 # #####################################################
-# Extract - Fbx Mesh data
+# Extract Fbx SDK Mesh Data
 # #####################################################
 def extract_fbx_vertex_positions(mesh):
     control_points_count = mesh.GetControlPointsCount()
@@ -714,7 +699,9 @@ def extract_fbx_vertex_positions(mesh):
 
     positions = []
     for i in range(control_points_count):
-        positions.append(convert_fbx_vec3(control_points[i]))
+        tmp = control_points[i]
+        tmp = [tmp[0], tmp[1], tmp[2]]
+        positions.append(tmp)
 
     node = mesh.GetNode()
     if node:
@@ -752,7 +739,7 @@ def extract_fbx_vertex_positions(mesh):
                 v = positions[i]
                 position = FbxVector4(v[0], v[1], v[2])
                 position = transform.MultNormalize(position)
-                positions[i] = convert_fbx_vec3(position)
+                positions[i] = [position[0], position[1], position[2]]
 
     return positions
 
@@ -786,7 +773,8 @@ def extract_fbx_vertex_normals(mesh):
 
         # values
         for i in range(normals_count):
-            normal = convert_fbx_vec3(normals_array.GetAt(i))
+            normal = normals_array.GetAt(i)
+            normal = [normal[0], normal[1], normal[2]]
             normal_values.append(normal)
 
         node = mesh.GetNode()
@@ -829,7 +817,8 @@ def extract_fbx_vertex_normals(mesh):
                     normal = FbxVector4(n[0], n[1], n[2])
                     normal = transform.MultNormalize(normal)
                     normal.Normalize()
-                    normal_values[i] = convert_fbx_vec3(normal)
+                    normal = [normal[0], normal[1], normal[2]]
+                    normal_values[i] = normal
 
         # indices
         vertexId = 0
@@ -915,7 +904,8 @@ def extract_fbx_vertex_colors(mesh):
 
         # values
         for i in range(colors_count):
-            color = convert_fbx_color(colors_array.GetAt(i))
+            color = colors_array.GetAt(i)
+            color = [color.mRed, color.mGreen, color.mBlue, color.mAlpha]
             color_values.append(color)
 
         # indices
@@ -987,7 +977,8 @@ def extract_fbx_vertex_uvs(mesh):
 
         # values
         for i in range(uvs_count):
-            uv = convert_fbx_vec2(uvs_array.GetAt(i))
+            uv = uvs_array.GetAt(i)
+            uv = [uv[0], uv[1]]
             uv_values.append(uv)
 
         # indices
@@ -1024,227 +1015,7 @@ def extract_fbx_vertex_uvs(mesh):
     return layered_uv_values, layered_uv_indices
 
 # #####################################################
-# Generate - Mesh String (for scene output) 
-# #####################################################
-def generate_mesh_string_for_scene_output(node):
-    mesh = node.GetNodeAttribute()
-    mesh_list = [ mesh ]
-
-    vertices, vertex_offsets = process_mesh_vertices(mesh_list)
-    materials, material_offsets = process_mesh_materials(mesh_list)
-
-    normals_to_indices = generate_unique_normals_dictionary(mesh_list)
-    colors_to_indices = generate_unique_colors_dictionary(mesh_list)
-    uvs_to_indices_list = generate_unique_uvs_dictionary_layers(mesh_list)
-    
-    normal_values = generate_normals_from_dictionary(normals_to_indices)
-    color_values = generate_colors_from_dictionary(colors_to_indices)
-    uv_values = generate_uvs_from_dictionary_layers(uvs_to_indices_list)
-
-    faces = process_mesh_polygons(mesh_list, 
-                normals_to_indices, 
-                colors_to_indices, 
-                uvs_to_indices_list, 
-                vertex_offsets, 
-                material_offsets)
-
-    aabb_min, aabb_max = generate_bounding_box(vertices)
-
-    # generate counts for uvs, vertices, normals, colors, and faces
-    nuvs = []
-    for layer_index, uvs in enumerate(uv_values):
-        nuvs.append(str(len(uvs)))
-
-    nvertices = len(vertices)
-    nnormals = len(normal_values)
-    ncolors = len(color_values)
-    nfaces = len(faces)
-
-    nskinning_bones   = 0
-    nskinning_weights = 0
-    nskinning_indices = 0
-
-    bones   = []
-    weights = []
-    indices = []
-
-    # get skinning data
-    if option_animation: 
-        skinning_weights = process_mesh_skin_weights(mesh_list)
-        skinning_indices = []
-        skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list[0])
-
-        for i in range(len(skinning_weights)):
-            vertex_weights = skinning_weights[i]
-            for j in range(len(vertex_weights)):
-                weight = vertex_weights[j]
-                if weight[0] > 0:
-                    bone_node = weight[1].GetLink()
-                    for k in range(len(skinning_bones)):
-                        bone = skinning_bones[k]
-                        if bone == bone_node:
-                            skinning_indices.append(k)
-                            break
-                else:
-                    skinning_indices.append(0)
-
-        nskinning_bones   = len(skinning_bones)
-        nskinning_weights = len(skinning_weights) * 2
-        nskinning_indices = len(skinning_indices)
-
-        bones = [getObjectName(b) for b in skinning_bones]
-        weights = [round(w[0],6) for l in skinning_weights for w in l]
-        indices  = skinning_indices
-
-    # flatten arrays
-    uv_values = generate_uvs(uv_values)
-    vertices = [val for v in vertices for val in v]
-    normal_values = [val for n in normal_values for val in n]
-    color_values = [val for c in color_values for val in c]
-    faces = [val for f in faces for val in f]
-
-    # disable json indenting when pretty printing for the arrays
-    if option_pretty_print:
-        nuvs = NoIndent(nuvs)
-        aabb_min = NoIndent(aabb_min, ', ')
-        aabb_max = NoIndent(aabb_max, ', ')
-        weights = ChunkedIndent(weights, 15, True)
-        indices = ChunkedIndent(indices, 30)
-        vertices = ChunkedIndent(vertices, 15, True)
-        normal_values = ChunkedIndent(normal_values, 15, True)
-        color_values = ChunkedIndent(color_values, 15, True)
-        faces = ChunkedIndent(faces, 30)
-  
-    metadata = {
-      'vertices' : nvertices,
-      'skinWeights' : nskinning_weights,
-      'skinIndices' : nskinning_indices,
-      'skinBones' : nskinning_bones,
-      'normals' : nnormals,
-      'colors' : ncolors,
-      'faces' : nfaces,
-      'uvs' : nuvs
-    }
-
-    skinning = {
-      'weights' : weights,
-      'indices' : indices,
-      'bones' : bones,
-    }
-
-    aabb = {
-      'min' : aabb_min,
-      'max' : aabb_max
-    }
-
-    output = {
-      'boundingBox' : aabb,
-      'scale' : 1,
-      'materials' : [],
-      'skinning' : skinning,
-      'vertices' : vertices,
-      'normals' : normal_values,
-      'colors' : color_values,
-      'uvs' : uv_values,
-      'faces' : faces
-    }
-
-    if option_pretty_print:
-        output['0metadata'] = metadata
-    else:
-        output['metadata'] = metadata
-
-    return output
-
-# #####################################################
-# Generate - Mesh String (for non-scene output) 
-# #####################################################
-def generate_non_scene_output(scene):
-    mesh_list = generate_mesh_list(scene)
-
-    vertices, vertex_offsets = process_mesh_vertices(mesh_list)
-    materials, material_offsets = process_mesh_materials(mesh_list)
-
-    normals_to_indices = generate_unique_normals_dictionary(mesh_list)
-    colors_to_indices = generate_unique_colors_dictionary(mesh_list)
-    uvs_to_indices_list = generate_unique_uvs_dictionary_layers(mesh_list)
-    
-    normal_values = generate_normals_from_dictionary(normals_to_indices)
-    color_values = generate_colors_from_dictionary(colors_to_indices)
-    uv_values = generate_uvs_from_dictionary_layers(uvs_to_indices_list)
-
-    faces = process_mesh_polygons(mesh_list, 
-                normals_to_indices, 
-                colors_to_indices, 
-                uvs_to_indices_list, 
-                vertex_offsets, 
-                material_offsets)
-
-    aabb_min, aabb_max = generate_bounding_box(vertices)
-
-    # generate counts for uvs, vertices, normals, colors, and faces
-    nuvs = []
-    for layer_index, uvs in enumerate(uv_values):
-        nuvs.append(str(len(uvs)))
-
-    nvertices = len(vertices)
-    nnormals = len(normal_values)
-    ncolors = len(color_values)
-    nfaces = len(faces)
-
-    # flatten arrays
-    uv_values = generate_uvs(uv_values)
-    vertices = [val for v in vertices for val in v]
-    normal_values = [val for n in normal_values for val in n]
-    color_values = [val for c in color_values for val in c]
-    faces = [val for f in faces for val in f]
-
-    # disable json indenting when pretty printing for the arrays
-    if option_pretty_print:
-        nuvs = NoIndent(nuvs)
-        aabb_min = NoIndent(aabb_min)
-        aabb_max = NoIndent(aabb_max)
-        vertices = NoIndent(vertices)
-        normal_values = NoIndent(normal_values)
-        color_values = NoIndent(color_values)
-        faces = NoIndent(faces)
-
-    metadata = {
-      'formatVersion' : 3.2,
-      'type' : 'geometry',
-      'generatedBy' : 'convert-to-threejs.py',
-      'vertices' : nvertices,
-      'normals' : nnormals,
-      'colors' : ncolors,
-      'faces' : nfaces,
-      'uvs' : nuvs
-    }
-
-    aabb = {
-      'min' : aabb_min,
-      'max' : aabb_max
-    }
-
-    output = {
-      'boundingBox' : aabb,
-      'scale' : 1,
-      'materials' : [],
-      'vertices' : vertices,
-      'normals' : normal_values,
-      'colors' : color_values,
-      'uvs' : uv_values,
-      'faces' : faces
-    }
-
-    if option_pretty_print:
-        output['0metadata'] = metadata
-    else:
-        output['metadata'] = metadata
-
-    return output
-
-# #####################################################
-# Process - Mesh Geometry
+# Process Mesh Geometry
 # #####################################################
 def generate_normal_key(normal):
     return (round(normal[0], 6), round(normal[1], 6), round(normal[2], 6))
@@ -1637,10 +1408,233 @@ def generate_mesh_face(mesh, polygon_index, vertex_indices, normals, colors, uv_
 
     return faceData 
 
+# #####################################################
+# Generate Mesh Object (for scene output format) 
+# #####################################################
+def generate_scene_output(node):
+    mesh = node.GetNodeAttribute()
+
+    # This is done in order to keep the scene output and non-scene output code DRY
+    mesh_list = [ mesh ]
+
+    # Extract the mesh data into arrays
+    vertices, vertex_offsets = process_mesh_vertices(mesh_list)
+    materials, material_offsets = process_mesh_materials(mesh_list)
+
+    normals_to_indices = generate_unique_normals_dictionary(mesh_list)
+    colors_to_indices = generate_unique_colors_dictionary(mesh_list)
+    uvs_to_indices_list = generate_unique_uvs_dictionary_layers(mesh_list)
+    
+    normal_values = generate_normals_from_dictionary(normals_to_indices)
+    color_values = generate_colors_from_dictionary(colors_to_indices)
+    uv_values = generate_uvs_from_dictionary_layers(uvs_to_indices_list)
+
+    # Generate mesh faces for the Three.js file format
+    faces = process_mesh_polygons(mesh_list, 
+                normals_to_indices, 
+                colors_to_indices, 
+                uvs_to_indices_list, 
+                vertex_offsets, 
+                material_offsets)
+
+    # Calculate the bounding box for this mesh
+    aabb_min, aabb_max = generate_bounding_box(vertices)
+
+    # Generate counts for uvs, vertices, normals, colors, and faces
+    nuvs = []
+    for layer_index, uvs in enumerate(uv_values):
+        nuvs.append(str(len(uvs)))
+
+    nvertices = len(vertices)
+    nnormals = len(normal_values)
+    ncolors = len(color_values)
+    nfaces = len(faces)
+
+    nskinning_bones   = 0
+    nskinning_weights = 0
+    nskinning_indices = 0
+
+    bones   = []
+    weights = []
+    indices = []
+
+    if option_animation: 
+        skinning_weights = process_mesh_skin_weights(mesh_list)
+        skinning_indices = []
+        skinning_bones = process_mesh_skeleton_hierarchy(scene, mesh_list[0])
+
+        for i in range(len(skinning_weights)):
+            vertex_weights = skinning_weights[i]
+            for j in range(len(vertex_weights)):
+                weight = vertex_weights[j]
+                if weight[0] > 0:
+                    bone_node = weight[1].GetLink()
+                    for k in range(len(skinning_bones)):
+                        bone = skinning_bones[k]
+                        if bone == bone_node:
+                            skinning_indices.append(k)
+                            break
+                else:
+                    skinning_indices.append(0)
+
+        nskinning_bones   = len(skinning_bones)
+        nskinning_weights = len(skinning_weights) * 2
+        nskinning_indices = len(skinning_indices)
+
+        bones = [getObjectName(b) for b in skinning_bones]
+        weights = [round(w[0],6) for l in skinning_weights for w in l]
+        indices  = skinning_indices
+
+    # Flatten the arrays, currently they are in the form of [[0, 1, 2], [3, 4, 5], ...]
+    vertices = [val for v in vertices for val in v]
+    normal_values = [val for n in normal_values for val in n]
+    color_values = [val for c in color_values for val in c]
+    faces = [val for f in faces for val in f]
+    uv_values = generate_uvs(uv_values)
+
+    # Disable automatic json indenting when pretty printing for the arrays
+    if option_pretty_print:
+        nuvs = NoIndent(nuvs)
+        aabb_min = NoIndent(aabb_min, ', ')
+        aabb_max = NoIndent(aabb_max, ', ')
+        weights = ChunkedIndent(weights, 15, True)
+        indices = ChunkedIndent(indices, 30)
+        vertices = ChunkedIndent(vertices, 15, True)
+        normal_values = ChunkedIndent(normal_values, 15, True)
+        color_values = ChunkedIndent(color_values, 15, True)
+        faces = ChunkedIndent(faces, 30)
+  
+    metadata = {
+      'vertices' : nvertices,
+      'skinWeights' : nskinning_weights,
+      'skinIndices' : nskinning_indices,
+      'skinBones' : nskinning_bones,
+      'normals' : nnormals,
+      'colors' : ncolors,
+      'faces' : nfaces,
+      'uvs' : nuvs
+    }
+
+    skinning = {
+      'weights' : weights,
+      'indices' : indices,
+      'bones' : bones,
+    }
+
+    aabb = {
+      'min' : aabb_min,
+      'max' : aabb_max
+    }
+
+    output = {
+      'boundingBox' : aabb,
+      'scale' : 1,
+      'materials' : [],
+      'skinning' : skinning,
+      'vertices' : vertices,
+      'normals' : normal_values,
+      'colors' : color_values,
+      'uvs' : uv_values,
+      'faces' : faces
+    }
+
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
+
+    return output
 
 # #####################################################
-# Generate - Mesh List 
+# Generate Mesh Object (for non-scene output) 
 # #####################################################
+def generate_non_scene_output(scene):
+    mesh_list = generate_mesh_list(scene)
+
+    # Extract the mesh data into arrays
+    vertices, vertex_offsets = process_mesh_vertices(mesh_list)
+    materials, material_offsets = process_mesh_materials(mesh_list)
+
+    normals_to_indices = generate_unique_normals_dictionary(mesh_list)
+    colors_to_indices = generate_unique_colors_dictionary(mesh_list)
+    uvs_to_indices_list = generate_unique_uvs_dictionary_layers(mesh_list)
+    
+    normal_values = generate_normals_from_dictionary(normals_to_indices)
+    color_values = generate_colors_from_dictionary(colors_to_indices)
+    uv_values = generate_uvs_from_dictionary_layers(uvs_to_indices_list)
+
+    # Generate mesh faces for the Three.js file format
+    faces = process_mesh_polygons(mesh_list, 
+                normals_to_indices, 
+                colors_to_indices, 
+                uvs_to_indices_list, 
+                vertex_offsets, 
+                material_offsets)
+
+    # Calculate the bounding box for this mesh
+    aabb_min, aabb_max = generate_bounding_box(vertices)
+
+    # Generate counts for uvs, vertices, normals, colors, and faces
+    nuvs = []
+    for layer_index, uvs in enumerate(uv_values):
+        nuvs.append(str(len(uvs)))
+
+    nvertices = len(vertices)
+    nnormals = len(normal_values)
+    ncolors = len(color_values)
+    nfaces = len(faces)
+
+    # Flatten the arrays, currently they are in the form of [[0, 1, 2], [3, 4, 5], ...]
+    vertices = [val for v in vertices for val in v]
+    normal_values = [val for n in normal_values for val in n]
+    color_values = [val for c in color_values for val in c]
+    faces = [val for f in faces for val in f]
+    uv_values = generate_uvs(uv_values)
+
+    # Disable json indenting when pretty printing for the arrays
+    if option_pretty_print:
+        nuvs = NoIndent(nuvs)
+        aabb_min = NoIndent(aabb_min)
+        aabb_max = NoIndent(aabb_max)
+        vertices = NoIndent(vertices)
+        normal_values = NoIndent(normal_values)
+        color_values = NoIndent(color_values)
+        faces = NoIndent(faces)
+
+    metadata = {
+      'formatVersion' : 3,
+      'type' : 'geometry',
+      'generatedBy' : 'convert-to-threejs.py',
+      'vertices' : nvertices,
+      'normals' : nnormals,
+      'colors' : ncolors,
+      'faces' : nfaces,
+      'uvs' : nuvs
+    }
+
+    aabb = {
+      'min' : aabb_min,
+      'max' : aabb_max
+    }
+
+    output = {
+      'boundingBox' : aabb,
+      'scale' : 1,
+      'materials' : [],
+      'vertices' : vertices,
+      'normals' : normal_values,
+      'colors' : color_values,
+      'uvs' : uv_values,
+      'faces' : faces
+    }
+
+    if option_pretty_print:
+        output['0metadata'] = metadata
+    else:
+        output['metadata'] = metadata
+
+    return output
+
 def generate_mesh_list_from_hierarchy(node, mesh_list):
     if node.GetNodeAttribute() == None:
         pass
@@ -1668,7 +1662,7 @@ def generate_mesh_list(scene):
     return mesh_list
 
 # #####################################################
-# Generate - Embeds 
+# Generate Embed Objects 
 # #####################################################
 def generate_embed_dict_from_hierarchy(node, embed_dict):
     if node.GetNodeAttribute() == None:
@@ -1683,8 +1677,8 @@ def generate_embed_dict_from_hierarchy(node, embed_dict):
             if attribute_type != FbxNodeAttribute.eMesh:
                 converter.TriangulateInPlace(node);
 
-            embed_object = generate_mesh_string_for_scene_output(node)
-            embed_name = getEmbedName(node, True)
+            embed_object = generate_scene_output(node)
+            embed_name = getPrefixedName(node, 'Embed')
             embed_dict[embed_name] = embed_object
 
     for i in range(node.GetChildCount()):
@@ -1699,13 +1693,13 @@ def generate_embed_dict(scene):
     return embed_dict
 
 # #####################################################
-# Generate - Geometries 
+# Generate Geometry Objects 
 # #####################################################
 def generate_geometry_object(node):
 
     output = {
       'type' : 'embedded',
-      'id' : getEmbedName( node, True )
+      'id' : getPrefixedName( node, 'Embed' )
     }
 
     return output
@@ -1717,7 +1711,7 @@ def generate_geometry_dict_from_hierarchy(node, geometry_dict):
         attribute_type = (node.GetNodeAttribute().GetAttributeType())
         if attribute_type == FbxNodeAttribute.eMesh:
             geometry_object = generate_geometry_object(node)
-            geometry_name = getGeometryName( node, True )
+            geometry_name = getPrefixedName( node, 'Geometry' )
             geometry_dict[geometry_name] = geometry_object
     for i in range(node.GetChildCount()):
         generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
@@ -1730,30 +1724,9 @@ def generate_geometry_dict(scene):
             generate_geometry_dict_from_hierarchy(node.GetChild(i), geometry_dict)
     return geometry_dict
 
-# #####################################################
-# Generate - Camera Names
-# #####################################################
-def generate_camera_name_list_from_hierarchy(node, camera_list):
-    if node.GetNodeAttribute() == None:
-        pass
-    else:
-        attribute_type = (node.GetNodeAttribute().GetAttributeType())
-        if attribute_type == FbxNodeAttribute.eCamera:
-            camera_string = getObjectName(node) 
-            camera_list.append(camera_string)
-    for i in range(node.GetChildCount()):
-        generate_camera_name_list_from_hierarchy(node.GetChild(i), camera_list)
-
-def generate_camera_name_list(scene):
-    camera_list = []
-    node = scene.GetRootNode()
-    if node:
-        for i in range(node.GetChildCount()):
-            generate_camera_name_list_from_hierarchy(node.GetChild(i), camera_list)
-    return camera_list
 
 # #####################################################
-# Generate - Light Object 
+# Generate Light Node Objects
 # #####################################################
 def generate_default_light():
     direction = (1,1,1)
@@ -1764,7 +1737,7 @@ def generate_default_light():
       'type': 'DirectionalLight',
       'color': getHex(color),
       'intensity': intensity/100.00,
-      'direction': getVector3( direction ),
+      'direction': serializeVector3( direction ),
       'target': getObjectName( None )
     }
 
@@ -1800,7 +1773,7 @@ def generate_light_object(node):
           'type': 'DirectionalLight',
           'color': getHex(light.Color.Get()),
           'intensity': light.Intensity.Get()/100.0,
-          'direction': getVector3( direction ),
+          'direction': serializeVector3( direction ),
           'target': getObjectName( node.GetTarget() ) 
 
         }
@@ -1812,7 +1785,7 @@ def generate_light_object(node):
           'type': 'PointLight',
           'color': getHex(light.Color.Get()),
           'intensity': light.Intensity.Get()/100.0,
-          'position': getVector3( position ),
+          'position': serializeVector3( position ),
           'distance': ligth.FarAttenuationEnd.Get()
 
         }
@@ -1824,7 +1797,7 @@ def generate_light_object(node):
           'type': 'SpotLight',
           'color': getHex(light.Color.Get()),
           'intensity': light.Intensity.Get()/100.0,
-          'position': getVector3( position ),
+          'position': serializeVector3( position ),
           'distance': ligth.FarAttenuationEnd.Get(),
           'angle': ligth.OuterAngle.Get()*math.pi/180,
           'exponent': ligth.DecayType.Get(),
@@ -1853,7 +1826,7 @@ def generate_ambient_light(scene):
     return output
     
 # #####################################################
-# Generate - Camera Object 
+# Generate Camera Node Objects
 # #####################################################
 def generate_default_camera():
     position = (100, 100, 100)
@@ -1866,7 +1839,7 @@ def generate_default_camera():
       'fov': fov,
       'near': near,
       'far': far,
-      'position': getVector3( position ) 
+      'position': serializeVector3( position ) 
     }
 
     return output
@@ -1905,7 +1878,7 @@ def generate_camera_object(node):
           'aspect': aspect,
           'near': near,
           'far': far,
-          'position': getVector3( position )
+          'position': serializeVector3( position )
 
         }
 
@@ -1925,14 +1898,36 @@ def generate_camera_object(node):
           'bottom': bottom,
           'near': near,
           'far': far,
-          'position': getVector3( position )
+          'position': serializeVector3( position )
 
         }
 
     return output
 
 # #####################################################
-# Generate - Mesh Object 
+# Generate Camera Names
+# #####################################################
+def generate_camera_name_list_from_hierarchy(node, camera_list):
+    if node.GetNodeAttribute() == None:
+        pass
+    else:
+        attribute_type = (node.GetNodeAttribute().GetAttributeType())
+        if attribute_type == FbxNodeAttribute.eCamera:
+            camera_string = getObjectName(node) 
+            camera_list.append(camera_string)
+    for i in range(node.GetChildCount()):
+        generate_camera_name_list_from_hierarchy(node.GetChild(i), camera_list)
+
+def generate_camera_name_list(scene):
+    camera_list = []
+    node = scene.GetRootNode()
+    if node:
+        for i in range(node.GetChildCount()):
+            generate_camera_name_list_from_hierarchy(node.GetChild(i), camera_list)
+    return camera_list
+
+# #####################################################
+# Generate Mesh Node Object 
 # #####################################################
 def generate_mesh_object(node):
     mesh = node.GetNodeAttribute()
@@ -1966,19 +1961,19 @@ def generate_mesh_object(node):
     skin_count = mesh.GetDeformerCount(FbxDeformer.eSkin)
 
     output = {
-      'geometry': getGeometryName( node, True ),
+      'geometry': getPrefixedName( node, 'Geometry' ),
       'material': material_name,
-      'position': getVector3( position ),
-      'quaternion': getVector4( quaternion ),
-      'scale': getVector3( scale ),
+      'position': serializeVector3( position ),
+      'quaternion': serializeVector4( quaternion ),
+      'scale': serializeVector3( scale ),
       'skin': skin_count > 0,
-      'visible': getObjectVisible( node ),
+      'visible': True,
     }
 
     return output
 
 # #####################################################
-# Generate - Object 
+# Generate Node Object 
 # #####################################################
 def generate_object(node):
     node_types = ["Unknown", "Null", "Marker", "Skeleton", "Mesh", "Nurbs", "Patch", "Camera", 
@@ -2000,16 +1995,16 @@ def generate_object(node):
     name = getObjectName( node )
     output = {
       'fbx_type': node_type,
-      'position': getVector3( position ),
-      'quaternion': getVector4( quaternion ),
-      'scale': getVector3( scale ),
-      'visible': getObjectVisible( node )
+      'position': serializeVector3( position ),
+      'quaternion': serializeVector4( quaternion ),
+      'scale': serializeVector3( scale ),
+      'visible': True
     }
 
     return output
 
 # #####################################################
-# Parse - Objects 
+# Parse Scene Node Objects 
 # #####################################################
 def generate_object_hierarchy(node, object_dict):
     object_count = 0
@@ -2073,7 +2068,7 @@ def generate_scene_objects(scene):
     return object_dict, object_count
 
 # #####################################################
-# Parse - Poses
+# Generate Poses
 # #####################################################
 def get_local_pose_transform(pose, node_index):
     node = pose.GetNode(node_index)
@@ -2100,9 +2095,9 @@ def generate_pose_node_object(pose, node_index):
 
     output = {
 
-      'position': getVector3( t ),
-      'quaternion': getVector4( q ),
-      'scale': getVector3( sc )
+      'position': serializeVector3( t ),
+      'quaternion': serializeVector4( q ),
+      'scale': serializeVector3( sc )
 
     }
 
@@ -2126,7 +2121,7 @@ def generate_pose_list(scene):
         pose = scene.GetPose(p)
 
         pose_nodes = generate_pose_object(pose)
-        pose_name = getPoseName(pose)
+        pose_name = pose.GetName()
 
         pose_type = 'Unknown'
         if pose.IsRestPose():
@@ -2148,7 +2143,7 @@ def generate_pose_list(scene):
     return pose_dict
 
 # #####################################################
-# Parse - Animations
+# Generate Animations
 # #####################################################
 def generate_animation_key_time_list(curve_node):
     time_list = []
@@ -2311,17 +2306,17 @@ def generate_animation_curve_list(scene):
                     
             curve_node = node.LclTranslation.GetCurveNode(layer, True)
             curve_object = generate_curve_object('position', node, curve_node, stack)
-            curve_name = getAnimationCurveName( curve_node, True )
+            curve_name = getPrefixedName( curve_node, 'Curve' )
             curve_dict[curve_name] = curve_object
 
             curve_node = node.LclRotation.GetCurveNode(layer, True)
             curve_object = generate_curve_object('rotation', node, curve_node, stack)
-            curve_name = getAnimationCurveName( curve_node, True )
+            curve_name = getPrefixedName( curve_node, 'Curve' )
             curve_dict[curve_name] = curve_object
 
             curve_node = node.LclScaling.GetCurveNode(layer, True)
             curve_object = generate_curve_object('scale', node, curve_node, stack)
-            curve_name = getAnimationCurveName( curve_node, True )
+            curve_name = getPrefixedName( curve_node, 'Curve' )
             curve_dict[curve_name] = curve_object
 
     return curve_dict
@@ -2338,16 +2333,16 @@ def generate_animation_layer_object(layer, scene):
         node = scene.GetNode(n)
 
         curve_node = node.LclTranslation.GetCurveNode(layer, True)
-        curve_string = getAnimationCurveName(curve_node, True)
-        curve_list.append(curve_string)
+        curve_name = getPrefixedName( curve_node, 'Curve' )
+        curve_list.append(curve_name)
 
         curve_node = node.LclRotation.GetCurveNode(layer, True)
-        curve_string = getAnimationCurveName(curve_node, True)
-        curve_list.append(curve_string)
+        curve_name = getPrefixedName( curve_node, 'Curve' )
+        curve_list.append(curve_name)
 
         curve_node = node.LclScaling.GetCurveNode(layer, True)
-        curve_string = getAnimationCurveName(curve_node, True)
-        curve_list.append(curve_string)
+        curve_name = getPrefixedName( curve_node, 'Curve' )
+        curve_list.append(curve_name)
         
     output = {
       'blendMode' : blend_mode,
@@ -2363,7 +2358,7 @@ def generate_animation_layer_list(scene):
     for j in range(layer_count):
         layer = scene.GetSrcObject(FbxAnimLayer.ClassId, j)
         layer_object = generate_animation_layer_object(layer, scene)
-        layer_name = getAnimationLayerName( layer, True )
+        layer_name = getPrefixedName( layer, 'Layer' )
         layer_dict[layer_name] = layer_object
 
     return layer_dict
@@ -2377,7 +2372,7 @@ def generate_animation_string(animation, scene):
     layer_count = animation.GetSrcObjectCount(FbxAnimLayer.ClassId)
     for i in range(layer_count):
         layer = animation.GetSrcObject(FbxAnimLayer.ClassId, i)
-        layer_string = getAnimationLayerName(layer, True)
+        layer_string = getPrefixedName(layer, 'Layer' )
         layer_list.append(layer_string)
 
     output = {
@@ -2394,7 +2389,7 @@ def generate_animation_list(scene):
     for i in range(animation_count):
         stack = scene.GetSrcObject(FbxAnimStack.ClassId, i)
         animation_object = generate_animation_string(stack, scene)
-        animation_name = getAnimationName( stack )
+        animation_name = stack.GetName()
         animation_dict[animation_name] = animation_object
 
     return animation_dict
@@ -2424,7 +2419,7 @@ def generate_bone_list_from_hierarchy(node, bone_list):
         generate_bone_list_from_hierarchy(node.GetChild(i), bone_list)
 
 # #####################################################
-# Parse - Skinning
+# Parse Skinning Data
 # #####################################################
 def extract_fbx_skinning_data(mesh):
     cluster_mode_types = [ "Normalize", "Additive", "Total1" ]
@@ -2513,7 +2508,7 @@ def process_mesh_skeleton_hierarchy(scene, mesh):
     return skeleton_hierarchy
 
 # #####################################################
-# Parse - Scene (scene output)
+# Generate Scene Output
 # #####################################################
 def extract_scene(scene, filename):
     global_settings = scene.GetGlobalSettings()
@@ -2528,9 +2523,9 @@ def extract_scene(scene, filename):
     nmaterials = len(materials)
     ngeometries = len(geometries)
 
-    position = getVector3( (0,0,0) )
-    rotation = getVector3( (0,0,0) )
-    scale    = getVector3( (1,1,1) )
+    position = serializeVector3( (0,0,0) )
+    rotation = serializeVector3( (0,0,0) )
+    scale    = serializeVector3( (1,1,1) )
 
     camera_names = generate_camera_name_list(scene)
     scene_settings = scene.GetGlobalSettings()
@@ -2576,6 +2571,7 @@ def extract_scene(scene, filename):
     }
 
     defaults = {
+      'bgcolor' : 0,
       'camera' : defcamera,
       'fog' : ''
     }
@@ -2597,21 +2593,21 @@ def extract_scene(scene, filename):
         output['metadata'] = metadata
 
     if option_pretty_print:
-        output['zanimation'] = animation
+        output['zanimations'] = animation
     else:
-        output['animation'] = animation
+        output['animations'] = animation
 
     return output
 
 # #####################################################
-# Parse - Geometry (non-scene output) 
+# Generate Non-Scene Output 
 # #####################################################
 def extract_geometry(scene, filename):
     output = generate_non_scene_output(scene)
     return output
 
 # #####################################################
-# file helpers
+# File Helpers
 # #####################################################
 def write_file(filepath, content):
     out = open(filepath, "w")
@@ -2638,7 +2634,7 @@ def findFilesWithExt(directory, ext, include_path = True):
     return found
             
 # #####################################################
-# Parse - Wavefront MTL 
+# Parse Wavefront MTL Files
 # #####################################################
 def parseMtlFile(filepath, textures):
     global mtl_texture_count
@@ -2824,24 +2820,7 @@ if __name__ == "__main__":
 
         if option_pretty_print:
             output_string = json.dumps(output_content, indent=4, cls=CustomEncoder, separators=(',', ': '), sort_keys=True)
-            # turn array strings into arrays
-            output_string = re.sub(':\s*\"(\[.*\])\"', r': \1', output_string)
-            output_string = re.sub('(\n\s*)\"(\[.*\])\"', r'\1\2', output_string)
-            output_string = re.sub('(\n\s*)\"{CHUNK}(.*)\"', r'\1\2', output_string)
-            # replace '0metadata' with metadata
-            output_string = re.sub('0metadata', r'metadata', output_string)
-            # replace 'zchildren' with children
-            output_string = re.sub('zchildren', r'children', output_string)
-            # replace 'zanimation' with animation
-            output_string = re.sub('zanimation', r'animation', output_string)
-            # replace 'zkeys' with keys
-            output_string = re.sub('zkeys', r'keys', output_string)
-            # add an extra newline after '"children": {'
-            output_string = re.sub('(children.*{\s*\n)', r'\1\n', output_string)
-            # add an extra newline after '},'
-            output_string = re.sub('},\s*\n', r'},\n\n', output_string)
-            # add an extra newline after '\n\s*],'
-            output_string = re.sub('(\n\s*)],\s*\n', r'\1],\n\n', output_string)
+            output_string = executeRegexHacks(output_string)
         else:
             output_string = json.dumps(output_content, separators=(',', ': '), sort_keys=True)
 
