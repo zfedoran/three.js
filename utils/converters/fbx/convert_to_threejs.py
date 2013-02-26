@@ -151,7 +151,7 @@ def getRadians(v):
 
 def getHex(c):
     color = (int(c[0]*255) << 16) + (int(c[1]*255) << 8) + int(c[2]*255)
-    return color
+    return int(color)
 
 def setBit(value, position, on):
     if on:
@@ -416,7 +416,7 @@ def generate_material_object(material):
         }
 
     else:
-      print("Unknown type of Material")
+      print "Unknown type of Material", getMaterialName(material)
 
     # default to Lambert Material if the current Material type cannot be handeled
     if not material_type:
@@ -945,6 +945,14 @@ def extract_fbx_vertex_colors(mesh):
         color_values = layered_color_values[0]
         color_indices = layered_color_indices[0]
 
+    if len(color_values) == 0:
+        color = mesh.Color.Get()
+        color_values = [[color[0], color[1], color[2]]]
+        color_indices = []
+        for p in range(poly_count):
+            poly_size = mesh.GetPolygonSize(p)
+            color_indices.append([0] * poly_size)
+
     return color_values, color_indices
 
 def extract_fbx_vertex_uvs(mesh):
@@ -1083,8 +1091,8 @@ def generate_unique_colors_dictionary(mesh_list):
             for color in color_values:
                 key = generate_color_key(color) 
                 if key not in colors_dictionary:
-                    colors_dictionary[key] = count
-                    count += 1
+                    colors_dictionary[key] = ncolors
+                    ncolors += 1
 
     return colors_dictionary
 
@@ -1488,7 +1496,7 @@ def generate_scene_output(node):
     # Flatten the arrays, currently they are in the form of [[0, 1, 2], [3, 4, 5], ...]
     vertices = [val for v in vertices for val in v]
     normal_values = [val for n in normal_values for val in n]
-    color_values = [val for c in color_values for val in c]
+    color_values = [c for c in color_values]
     faces = [val for f in faces for val in f]
     uv_values = generate_uvs(uv_values)
 
@@ -1501,7 +1509,7 @@ def generate_scene_output(node):
         indices = ChunkedIndent(indices, 30)
         vertices = ChunkedIndent(vertices, 15, True)
         normal_values = ChunkedIndent(normal_values, 15, True)
-        color_values = ChunkedIndent(color_values, 15, True)
+        color_values = ChunkedIndent(color_values, 15)
         faces = ChunkedIndent(faces, 30)
   
     metadata = {
@@ -1587,7 +1595,7 @@ def generate_non_scene_output(scene):
     # Flatten the arrays, currently they are in the form of [[0, 1, 2], [3, 4, 5], ...]
     vertices = [val for v in vertices for val in v]
     normal_values = [val for n in normal_values for val in n]
-    color_values = [val for c in color_values for val in c]
+    color_values = [c for c in color_values]
     faces = [val for f in faces for val in f]
     uv_values = generate_uvs(uv_values)
 
