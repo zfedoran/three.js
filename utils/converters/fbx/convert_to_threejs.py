@@ -945,6 +945,9 @@ def extract_fbx_vertex_colors(mesh):
         color_values = layered_color_values[0]
         color_indices = layered_color_indices[0]
 
+    '''
+    # The Fbx SDK defaults mesh.Color to (0.8, 0.8, 0.8)
+    # This causes most models to receive incorrect vertex colors
     if len(color_values) == 0:
         color = mesh.Color.Get()
         color_values = [[color[0], color[1], color[2]]]
@@ -952,6 +955,7 @@ def extract_fbx_vertex_colors(mesh):
         for p in range(poly_count):
             poly_size = mesh.GetPolygonSize(p)
             color_indices.append([0] * poly_size)
+    '''
 
     return color_values, color_indices
 
