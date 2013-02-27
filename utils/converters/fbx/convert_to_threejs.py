@@ -2545,10 +2545,9 @@ def extract_scene(scene, filename):
     if option_default_camera:
       defcamera = 'default_camera'
 
-    poses = []
-    animation_takes = {}
-    animation_layers = {}
-    animation_curves = {}
+    poses = None
+    animation = None
+    hasAnimationData = False
 
     if option_animation:
         poses = generate_pose_list( scene )
@@ -2556,11 +2555,13 @@ def extract_scene(scene, filename):
         animation_layers = generate_animation_layer_list( scene )
         animation_curves = generate_animation_curve_list( scene )
 
-    animation = {
-      'takes' : animation_takes,
-      'layers' : animation_layers,
-      'curves' : animation_curves
-    }
+        hasAnimationData = len(animation_takes) > 0
+
+        animation = {
+          'takes' : animation_takes,
+          'layers' : animation_layers,
+          'curves' : animation_curves
+        }
 
     metadata = {
       'formatVersion': 5,
@@ -2590,7 +2591,6 @@ def extract_scene(scene, filename):
       'materials': materials,
       'textures': textures,
       'embeds': embeds,
-      'poses': poses,
       'transform': transform,
       'defaults': defaults,
     }
@@ -2600,10 +2600,12 @@ def extract_scene(scene, filename):
     else:
         output['metadata'] = metadata
 
-    if option_pretty_print:
-        output['zanimations'] = animation
-    else:
-        output['animations'] = animation
+    if hasAnimationData:
+        output['poses'] = poses
+        if option_pretty_print:
+            output['zanimations'] = animation
+        else:
+            output['animations'] = animation
 
     return output
 
