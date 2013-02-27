@@ -1794,7 +1794,7 @@ def generate_light_object(node):
           'color': getHex(light.Color.Get()),
           'intensity': light.Intensity.Get()/100.0,
           'position': serializeVector3( position ),
-          'distance': ligth.FarAttenuationEnd.Get()
+          'distance': light.FarAttenuationEnd.Get()
 
         }
 
@@ -1806,9 +1806,9 @@ def generate_light_object(node):
           'color': getHex(light.Color.Get()),
           'intensity': light.Intensity.Get()/100.0,
           'position': serializeVector3( position ),
-          'distance': ligth.FarAttenuationEnd.Get(),
-          'angle': ligth.OuterAngle.Get()*math.pi/180,
-          'exponent': ligth.DecayType.Get(),
+          'distance': light.FarAttenuationEnd.Get(),
+          'angle': light.OuterAngle.Get()*math.pi/180,
+          'exponent': light.DecayType.Get(),
           'target': getObjectName( node.GetTarget() ) 
 
         }
