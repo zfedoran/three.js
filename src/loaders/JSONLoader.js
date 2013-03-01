@@ -183,7 +183,7 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
                     for ( var c = 0; c < curve.channels; c++ ) {
                       value.push(curve.keys[k+c+1]);
                     }
-                    addKey(time, value, curve.property, keys);
+                    addKey(time - take.start, value, curve.property, keys);
                   }
                 }
               }
