@@ -189,7 +189,10 @@ THREE.JSONLoader.prototype.createModel = function ( json, callback, texturePath,
               }
 
               var keyframes = [];
-              var times = Object.keys(keys).sort();
+              var times = Object.keys(keys).sort(function(a,b) { 
+                 return parseFloat(a) - parseFloat(b); 
+              });
+
               for ( var j = 0; j < times.length; j++ ) {
                 var time = times[j];
                 var key = keys[time];
